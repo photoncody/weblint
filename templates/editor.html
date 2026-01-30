@@ -1,0 +1,105 @@
+{% extends 'base.html' %}
+
+<!-- Dynamic Title Block -->
+{% block title %}{% if snippet %}Edit {{ snippet.title }}{% else %}New Snippet{% endif %} - WebLint{% endblock %}
+
+{% block content %}
+<h2>{{ 'Edit' if snippet else 'New' }} Snippet</h2>
+<form method="post">
+    <div class="row">
+        <div class="col-md-8">
+            <div class="mb-3">
+                <label class="form-label">Title</label>
+                <input type="text" name="title" class="form-control" required value="{{ snippet.title if snippet else '' }}">
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Content</label>
+                <textarea id="editor-content" name="content" class="form-control" rows="15" required placeholder="Type content here. Try [[Input=Name|Default]] or [[Area=Notes]]...">{{ snippet.content if snippet else '' }}</textarea>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Type</label>
+                <select name="type" class="form-select">
+                    <!-- Default to Plain Text if no snippet exists -->
+                    <option value="plain" {% if not snippet or snippet.type == 'plain' %}selected{% endif %}>Plain Text</option>
+                    <option value="markdown" {% if snippet and snippet.type == 'markdown' %}selected{% endif %}>Markdown</option>
+                    <option value="html" {% if snippet and snippet.type == 'html' %}selected{% endif %}>HTML</option>
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Save Snippet</button>
+            <a href="/" class="btn btn-secondary">Cancel</a>
+        </div>
+        <!-- Side Panel for Variable Detection -->
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header bg-info text-white">Detected Variables</div>
+                <div class="card-body">
+                    <ul id="variable-list" class="list-group list-group-flush">
+                        <li class="list-group-item text-muted">Start typing to detect variables...</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="mt-3 alert alert-light">
+                <small>
+                    <strong>Syntax Guide:</strong><br>
+                    <code>[[Input=Label|Default]]</code> (Single Line)<br>
+                    <code>[[Area=Label|Default]]</code> (Multi-Line)<br>
+                    <code>[[Choice=?Label|Opt1|Opt2]]</code><br>
+                    <code>[[DateTime=M-d-yyyy]]</code>
+                </small>
+            </div>
+        </div>
+    </div>
+</form>
+
+<script>
+    document.getElementById('editor-content').addEventListener('input', function(e) {
+        const text = e.target.value;
+        const list = document.getElementById('variable-list');
+        list.innerHTML = '';
+
+        // Updated Regex to support Area
+        const inputRegex = /\[\[Input=(.*?)(?:\|(.*?))?\]\]/g;
+        const areaRegex = /\[\[Area=(.*?)(?:\|(.*?))?\]\]/g;
+        const choiceRegex = /\[\[Choice=\?(.*?)\|(.*?)\]\]/g;
+        const dateRegex = /\[\[DateTime=(.*?)\]\]/g;
+
+        let found = false;
+        let match;
+
+        // Find Inputs
+        while ((match = inputRegex.exec(text)) !== null) {
+            found = true;
+            const label = match[1];
+            const def = match[2] ? ` <span class="badge bg-secondary" style="font-size:0.7em">Default: ${match[2]}</span>` : '';
+            list.innerHTML += `<li class="list-group-item">🔹 <strong>Input:</strong> ${label}${def}</li>`;
+        }
+        
+        // Find Areas (Multi-line)
+        while ((match = areaRegex.exec(text)) !== null) {
+            found = true;
+            const label = match[1];
+            const def = match[2] ? ` <span class="badge bg-secondary" style="font-size:0.7em">Default: ${match[2]}</span>` : '';
+            list.innerHTML += `<li class="list-group-item">📝 <strong>Area:</strong> ${label}${def}</li>`;
+        }
+        
+        // Find Choices
+        while ((match = choiceRegex.exec(text)) !== null) {
+            found = true;
+            const choices = match[2].split('|').join(', ');
+            list.innerHTML += `<li class="list-group-item">🔸 <strong>Choice:</strong> ${match[1]}<br><small class="text-muted">[${choices}]</small></li>`;
+        }
+
+        // Find DateTimes
+        while ((match = dateRegex.exec(text)) !== null) {
+            found = true;
+            list.innerHTML += `<li class="list-group-item">🕒 <strong>DateTime:</strong> ${match[1]}</li>`;
+        }
+
+        if (!found) {
+            list.innerHTML = '<li class="list-group-item text-muted">No variables detected.</li>';
+        }
+    });
+    // Trigger once on load
+    document.getElementById('editor-content').dispatchEvent(new Event('input'));
+</script>
+{% endblock %}

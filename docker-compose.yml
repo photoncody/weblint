@@ -1,0 +1,14 @@
+services:
+  weblint:
+    build: .
+    container_name: weblint
+    restart: unless-stopped
+    ports:
+      - "5000:5000" # Access at localhost:5000
+    volumes:
+      - weblint_data:/data 
+      # OR use bind mount below if you prefer local folder access:
+      # - ./data:/data
+
+volumes:
+  weblint_data:

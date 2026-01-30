@@ -1,0 +1,300 @@
+{% extends 'base.html' %}
+
+<!-- Dynamic Title Block -->
+{% block title %}{{ snippet.title }} - WebLint{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h3>{{ snippet.title }}</h3>
+    <div>
+        <a href="{{ url_for('edit_snippet', s_id=snippet.id) }}" class="btn btn-warning btn-sm">Edit</a>
+        <a href="{{ url_for('delete_snippet', s_id=snippet.id) }}" class="btn btn-danger btn-sm" onclick="return confirm('Delete this snippet?')">Delete</a>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Left: Variable Inputs -->
+    <div class="col-md-4">
+        <div class="card mb-3">
+            <div class="card-header">1. Fill Variables</div>
+            <div class="card-body">
+                <form id="variable-form">
+                    <div id="form-container" class="text-muted">Analyzing snippet...</div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right: Live Preview -->
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>2. Live Preview</span>
+                <button id="copy-btn" class="btn btn-primary btn-sm" onclick="copyOutput()">Copy Output</button>
+            </div>
+            <div class="card-body">
+                <!-- Visual Preview -->
+                <div id="preview-area"></div>
+                <hr>
+                <h6>Raw Source:</h6>
+                <textarea id="raw-output" class="form-control" rows="5" readonly></textarea>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Hidden raw content storage -->
+<div id="raw-content" style="display:none;">{{ snippet.content }}</div>
+<div id="snippet-type" style="display:none;">{{ snippet.type }}</div>
+
+<script>
+    const rawContent = document.getElementById('raw-content').innerText;
+    const snippetType = document.getElementById('snippet-type').innerText;
+    const formContainer = document.getElementById('form-container');
+    
+    // DateTime Formatter
+    function formatDateTime(formatStr) {
+        const now = new Date();
+        const pad = (n) => String(n).padStart(2, '0');
+        const tokens = {
+            'yyyy': now.getFullYear(),
+            'yy': String(now.getFullYear()).slice(-2),
+            'MM': pad(now.getMonth() + 1),
+            'M': now.getMonth() + 1,
+            'dd': pad(now.getDate()),
+            'd': now.getDate(),
+            'HH': pad(now.getHours()),
+            'H': now.getHours(),
+            'mm': pad(now.getMinutes()),
+            'ss': pad(now.getSeconds())
+        };
+        
+        let result = formatStr;
+        Object.keys(tokens).sort((a, b) => b.length - a.length).forEach(key => {
+            result = result.replace(new RegExp(key, 'g'), tokens[key]);
+        });
+        return result;
+    }
+
+    function init() {
+        formContainer.innerHTML = '';
+        
+        // Define Regexes locally to ensure clean state
+        const inputRegex = /\[\[Input=([^|\]]+)(?:\|([^\]]+))?\]\]/g; 
+        const areaRegex = /\[\[Area=([^|\]]+)(?:\|([^\]]+))?\]\]/g;
+        const choiceRegex = /\[\[Choice=\?(.*?)\|(.*?)\]\]/g;
+        
+        let index = 0;
+        let uniqueKeys = new Set();
+        let hasVariables = false;
+
+        // Helper to add field
+        const addField = (label, type, defaultValue, options = []) => {
+            const id = `var_${index++}`;
+            const key = `${type}_${label}`; 
+            
+            if(uniqueKeys.has(key)) return; 
+            uniqueKeys.add(key);
+            hasVariables = true;
+
+            const div = document.createElement('div');
+            div.className = 'mb-2';
+            div.innerHTML = `<label class="form-label small fw-bold">${label}</label>`;
+            
+            let field;
+            if (type === 'input') {
+                field = document.createElement('input');
+                field.type = 'text';
+                field.className = 'form-control form-control-sm trigger-update';
+                field.dataset.originalLabel = label;
+                field.dataset.type = 'input';
+                field.value = defaultValue || '';
+            } else if (type === 'area') {
+                field = document.createElement('textarea');
+                field.className = 'form-control form-control-sm trigger-update';
+                field.rows = 4; // Multi-line support
+                field.dataset.originalLabel = label;
+                field.dataset.type = 'area';
+                field.value = defaultValue || '';
+            } else {
+                field = document.createElement('select');
+                field.className = 'form-select form-select-sm trigger-update';
+                field.dataset.originalLabel = label;
+                field.dataset.type = 'choice';
+                field.dataset.optionsRaw = options.join('|');
+                
+                options.forEach(opt => {
+                    const o = document.createElement('option');
+                    o.value = opt;
+                    o.innerText = opt;
+                    field.appendChild(o);
+                });
+            }
+            
+            field.addEventListener('input', updatePreview);
+            div.appendChild(field);
+            formContainer.appendChild(div);
+        };
+
+        // Collect all matches first to sort them by position
+        let allMatches = [];
+        let m;
+
+        // 1. Scan for Inputs
+        while ((m = inputRegex.exec(rawContent)) !== null) {
+            allMatches.push({ index: m.index, type: 'input', args: [m[1], 'input', m[2]] });
+        }
+
+        // 2. Scan for Areas
+        while ((m = areaRegex.exec(rawContent)) !== null) {
+            allMatches.push({ index: m.index, type: 'area', args: [m[1], 'area', m[2]] });
+        }
+        
+        // 3. Scan for Choices
+        while ((m = choiceRegex.exec(rawContent)) !== null) {
+            const content = m[1]; 
+            const opts = m[2].split('|');
+            allMatches.push({ index: m.index, type: 'choice', args: [content, 'choice', null, opts] });
+        }
+
+        // Sort by appearance in the text
+        allMatches.sort((a, b) => a.index - b.index);
+
+        // Generate fields in order
+        allMatches.forEach(match => {
+            addField(...match.args);
+        });
+        
+        if (!hasVariables) {
+            // Check for DateTime to provide helpful status
+            if (/\[\[DateTime=.*?\]\]/.test(rawContent)) {
+                 formContainer.innerHTML = '<em>Only auto-calculated variables found.</em>';
+            } else {
+                 formContainer.innerHTML = '<em>No input variables in this snippet.</em>';
+            }
+        }
+        
+        updatePreview();
+    }
+
+    function updatePreview() {
+        let currentText = rawContent;
+        
+        const inputs = document.querySelectorAll('.trigger-update');
+        inputs.forEach(input => {
+            let val = input.value;
+            const label = input.dataset.originalLabel;
+            const escLabel = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            
+            // Handle newlines for Text Areas based on Snippet Type
+            if (input.dataset.type === 'area') {
+                if (snippetType === 'html') {
+                    // HTML: Convert newline to <br> plus newline for source readability
+                    val = val.replace(/\n/g, '<br>\n');
+                } else if (snippetType === 'markdown') {
+                    // Markdown: Convert newline to "  \n" (two spaces + newline) for hard break
+                    val = val.replace(/\n/g, '  \n');
+                }
+                // Plain text: Leave \n as is
+            }
+            
+            if (input.dataset.type === 'input') {
+                const re = new RegExp(`\\[\\[Input=${escLabel}(?:\\|.*?)?\\]\\]`, 'g');
+                currentText = currentText.replace(re, () => val);
+            } else if (input.dataset.type === 'area') {
+                const re = new RegExp(`\\[\\[Area=${escLabel}(?:\\|.*?)?\\]\\]`, 'g');
+                currentText = currentText.replace(re, () => val);
+            } else if (input.dataset.type === 'choice') {
+                const escOpts = input.dataset.optionsRaw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const re = new RegExp(`\\[\\[Choice=\\?${escLabel}\\|${escOpts}\\]\\]`, 'g');
+                currentText = currentText.replace(re, () => val);
+            }
+        });
+
+        // Replace DateTimes
+        const dateRegex = /\[\[DateTime=(.*?)\]\]/g;
+        currentText = currentText.replace(dateRegex, (match, format) => {
+            return formatDateTime(format);
+        });
+
+        // Update Raw Output
+        document.getElementById('raw-output').value = currentText;
+
+        // Update Visual Preview
+        const previewDiv = document.getElementById('preview-area');
+        if (snippetType === 'markdown') {
+            previewDiv.innerHTML = marked.parse(currentText);
+        } else if (snippetType === 'html') {
+            previewDiv.innerHTML = currentText;
+        } else {
+            previewDiv.innerText = currentText;
+        }
+    }
+
+    async function copyOutput() {
+        const btn = document.getElementById("copy-btn");
+        const rawText = document.getElementById("raw-output").value;
+        
+        try {
+            // For Plain Text, standard copy is fine.
+            // For Markdown/HTML, we want to copy Rich Text (HTML) for CRMs/Notes, 
+            // but keep Plain Text for code editors.
+            if (snippetType === 'plain') {
+                 await navigator.clipboard.writeText(rawText);
+            } else {
+                let htmlContent = '';
+                
+                if (snippetType === 'markdown') {
+                    htmlContent = marked.parse(rawText);
+                } else if (snippetType === 'html') {
+                    htmlContent = rawText;
+                }
+
+                // Create blobs for clipboard
+                const blobHtml = new Blob([htmlContent], { type: "text/html" });
+                const blobText = new Blob([rawText], { type: "text/plain" });
+                
+                const data = [new ClipboardItem({
+                    ["text/html"]: blobHtml,
+                    ["text/plain"]: blobText
+                })];
+                
+                await navigator.clipboard.write(data);
+            }
+
+            // Visual Feedback
+            const originalText = btn.innerText;
+            const originalClass = btn.className;
+            
+            btn.innerText = "Copied!";
+            btn.className = "btn btn-success btn-sm";
+            
+            setTimeout(() => {
+                btn.innerText = originalText;
+                btn.className = originalClass;
+            }, 2000);
+
+        } catch (err) {
+            console.warn("Rich text copy failed (likely non-secure context), falling back to plain text:", err);
+            
+            // Fallback: Copy raw text
+            navigator.clipboard.writeText(rawText).then(() => {
+                const originalText = btn.innerText;
+                const originalClass = btn.className;
+                
+                btn.innerText = "Copied!";
+                btn.className = "btn btn-success btn-sm";
+                
+                setTimeout(() => {
+                    btn.innerText = originalText;
+                    btn.className = originalClass;
+                }, 2000);
+            }).catch(e => {
+                alert("Copy failed. Please manually copy the Raw Source.");
+            });
+        }
+    }
+
+    init();
+</script>
+{% endblock %}
