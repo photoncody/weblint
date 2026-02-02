@@ -6,7 +6,13 @@ from flask_sqlalchemy import SQLAlchemy
 
 app = Flask(__name__)
 app.secret_key = 'weblint_secret'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////data/snippets.db'
+
+# Determine DB path: Use /data if available (Docker), else local ./data (Dev)
+base_dir = '/data' if os.path.exists('/data') else os.path.join(os.getcwd(), 'data')
+os.makedirs(base_dir, exist_ok=True)
+db_path = os.path.join(base_dir, 'snippets.db')
+
+app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
@@ -16,6 +22,7 @@ class Snippet(db.Model):
     title = db.Column(db.String(200), nullable=False)
     content = db.Column(db.Text, nullable=False)
     type = db.Column(db.String(50), nullable=False)
+    parsing_mode = db.Column(db.String(50), default='weblint')
 
 with app.app_context():
     db.create_all()
@@ -62,7 +69,8 @@ def new_snippet():
         new_snippet = Snippet(
             title=request.form['title'],
             content=request.form['content'],
-            type=request.form['type']
+            type=request.form['type'],
+            parsing_mode=request.form.get('parsing_mode', 'weblint')
         )
         db.session.add(new_snippet)
         db.session.commit()
@@ -77,6 +85,7 @@ def edit_snippet(s_id):
         snippet.title = request.form['title']
         snippet.content = request.form['content']
         snippet.type = request.form['type']
+        snippet.parsing_mode = request.form.get('parsing_mode', 'weblint')
         db.session.commit()
         return redirect(url_for('view_snippet', s_id=s_id))
         
