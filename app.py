@@ -5,7 +5,7 @@ from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
 
 app = Flask(__name__)
-app.secret_key = 'weblint_secret'
+app.secret_key = os.environ.get('SECRET_KEY', 'weblint_secret')
 
 # Determine DB path: Use /data if available (Docker), else local ./data (Dev)
 base_dir = '/data' if os.path.exists('/data') else os.path.join(os.getcwd(), 'data')

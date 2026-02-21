@@ -1,0 +1,21 @@
+# Ignore git data
+.git/
+.gitignore
+
+# Ignore local data
+data/
+
+# Ignore compiled python files
+__pycache__/
+*.pyc
+
+# Ignore environment files
+.env
+.venv/
+venv/
+env/
+
+# Ignore IDE files
+.idea/
+.vscode/
+.DS_Store
