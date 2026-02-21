@@ -38,6 +38,14 @@ Weblint uses a simple syntax to define variables in your snippets. When you view
   - Automatically inserts the current date/time in the specified format.
   - Supported tokens: `yyyy`, `yy`, `MM`, `M`, `dd`, `d`, `HH`, `H`, `mm`, `ss`.
 
+### Batch Script Mode
+
+In addition to the standard syntax, Weblint supports a "Batch Script" parsing mode. When this mode is selected for a snippet, you can use `%VARIABLE%` syntax to define inputs.
+
+- **Syntax**: `%VARIABLE_NAME%`
+- **Example**: `echo "Hello, %USERNAME%!"`
+- **Usage**: When viewed, Weblint will generate an input field for `USERNAME`.
+
 ## Getting Started
 
 ### Prerequisites
