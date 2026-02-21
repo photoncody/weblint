@@ -46,10 +46,12 @@
 <!-- Hidden raw content storage -->
 <div id="raw-content" style="display:none;">{{ snippet.content }}</div>
 <div id="snippet-type" style="display:none;">{{ snippet.type }}</div>
+<div id="snippet-parsing-mode" style="display:none;">{{ snippet.parsing_mode }}</div>
 
 <script>
     const rawContent = document.getElementById('raw-content').innerText;
     const snippetType = document.getElementById('snippet-type').innerText;
+    const snippetParsingMode = document.getElementById('snippet-parsing-mode').innerText;
     const formContainer = document.getElementById('form-container');
     
     // DateTime Formatter
@@ -78,11 +80,6 @@
 
     function init() {
         formContainer.innerHTML = '';
-        
-        // Define Regexes locally to ensure clean state
-        const inputRegex = /\[\[Input=([^|\]]+)(?:\|([^\]]+))?\]\]/g; 
-        const areaRegex = /\[\[Area=([^|\]]+)(?:\|([^\]]+))?\]\]/g;
-        const choiceRegex = /\[\[Choice=\?(.*?)\|(.*?)\]\]/g;
         
         let index = 0;
         let uniqueKeys = new Set();
@@ -140,21 +137,33 @@
         let allMatches = [];
         let m;
 
-        // 1. Scan for Inputs
-        while ((m = inputRegex.exec(rawContent)) !== null) {
-            allMatches.push({ index: m.index, type: 'input', args: [m[1], 'input', m[2]] });
-        }
+        if (snippetParsingMode === 'batch') {
+            const batchRegex = /%([^%]+)%/g;
+            while ((m = batchRegex.exec(rawContent)) !== null) {
+                allMatches.push({ index: m.index, type: 'input', args: [m[1], 'input', null] });
+            }
+        } else {
+            // Define Regexes locally to ensure clean state
+            const inputRegex = /\[\[Input=([^|\]]+)(?:\|([^\]]+))?\]\]/g;
+            const areaRegex = /\[\[Area=([^|\]]+)(?:\|([^\]]+))?\]\]/g;
+            const choiceRegex = /\[\[Choice=\?(.*?)\|(.*?)\]\]/g;
 
-        // 2. Scan for Areas
-        while ((m = areaRegex.exec(rawContent)) !== null) {
-            allMatches.push({ index: m.index, type: 'area', args: [m[1], 'area', m[2]] });
-        }
-        
-        // 3. Scan for Choices
-        while ((m = choiceRegex.exec(rawContent)) !== null) {
-            const content = m[1]; 
-            const opts = m[2].split('|');
-            allMatches.push({ index: m.index, type: 'choice', args: [content, 'choice', null, opts] });
+            // 1. Scan for Inputs
+            while ((m = inputRegex.exec(rawContent)) !== null) {
+                allMatches.push({ index: m.index, type: 'input', args: [m[1], 'input', m[2]] });
+            }
+
+            // 2. Scan for Areas
+            while ((m = areaRegex.exec(rawContent)) !== null) {
+                allMatches.push({ index: m.index, type: 'area', args: [m[1], 'area', m[2]] });
+            }
+
+            // 3. Scan for Choices
+            while ((m = choiceRegex.exec(rawContent)) !== null) {
+                const content = m[1];
+                const opts = m[2].split('|');
+                allMatches.push({ index: m.index, type: 'choice', args: [content, 'choice', null, opts] });
+            }
         }
 
         // Sort by appearance in the text
@@ -199,8 +208,13 @@
             }
             
             if (input.dataset.type === 'input') {
-                const re = new RegExp(`\\[\\[Input=${escLabel}(?:\\|.*?)?\\]\\]`, 'g');
-                currentText = currentText.replace(re, () => val);
+                if (snippetParsingMode === 'batch') {
+                    const re = new RegExp(`%${escLabel}%`, 'g');
+                    currentText = currentText.replace(re, () => val);
+                } else {
+                    const re = new RegExp(`\\[\\[Input=${escLabel}(?:\\|.*?)?\\]\\]`, 'g');
+                    currentText = currentText.replace(re, () => val);
+                }
             } else if (input.dataset.type === 'area') {
                 const re = new RegExp(`\\[\\[Area=${escLabel}(?:\\|.*?)?\\]\\]`, 'g');
                 currentText = currentText.replace(re, () => val);

@@ -25,6 +25,13 @@
                     <option value="html" {% if snippet and snippet.type == 'html' %}selected{% endif %}>HTML</option>
                 </select>
             </div>
+            <div class="mb-3">
+                <label class="form-label">Parsing Mode</label>
+                <select id="parsing-mode" name="parsing_mode" class="form-select">
+                    <option value="weblint" {% if not snippet or snippet.parsing_mode == 'weblint' %}selected{% endif %}>Standard (WebLint)</option>
+                    <option value="batch" {% if snippet and snippet.parsing_mode == 'batch' %}selected{% endif %}>Batch Script (%VAR%)</option>
+                </select>
+            </div>
             <button type="submit" class="btn btn-primary">Save Snippet</button>
             <a href="/" class="btn btn-secondary">Cancel</a>
         </div>
@@ -52,54 +59,66 @@
 </form>
 
 <script>
-    document.getElementById('editor-content').addEventListener('input', function(e) {
-        const text = e.target.value;
+    function detectVariables() {
+        const text = document.getElementById('editor-content').value;
+        const mode = document.getElementById('parsing-mode').value;
         const list = document.getElementById('variable-list');
         list.innerHTML = '';
-
-        // Updated Regex to support Area
-        const inputRegex = /\[\[Input=(.*?)(?:\|(.*?))?\]\]/g;
-        const areaRegex = /\[\[Area=(.*?)(?:\|(.*?))?\]\]/g;
-        const choiceRegex = /\[\[Choice=\?(.*?)\|(.*?)\]\]/g;
-        const dateRegex = /\[\[DateTime=(.*?)\]\]/g;
 
         let found = false;
         let match;
 
-        // Find Inputs
-        while ((match = inputRegex.exec(text)) !== null) {
-            found = true;
-            const label = match[1];
-            const def = match[2] ? ` <span class="badge bg-secondary" style="font-size:0.7em">Default: ${match[2]}</span>` : '';
-            list.innerHTML += `<li class="list-group-item">🔹 <strong>Input:</strong> ${label}${def}</li>`;
-        }
-        
-        // Find Areas (Multi-line)
-        while ((match = areaRegex.exec(text)) !== null) {
-            found = true;
-            const label = match[1];
-            const def = match[2] ? ` <span class="badge bg-secondary" style="font-size:0.7em">Default: ${match[2]}</span>` : '';
-            list.innerHTML += `<li class="list-group-item">📝 <strong>Area:</strong> ${label}${def}</li>`;
-        }
-        
-        // Find Choices
-        while ((match = choiceRegex.exec(text)) !== null) {
-            found = true;
-            const choices = match[2].split('|').join(', ');
-            list.innerHTML += `<li class="list-group-item">🔸 <strong>Choice:</strong> ${match[1]}<br><small class="text-muted">[${choices}]</small></li>`;
-        }
+        if (mode === 'weblint') {
+            // Updated Regex to support Area
+            const inputRegex = /\[\[Input=(.*?)(?:\|(.*?))?\]\]/g;
+            const areaRegex = /\[\[Area=(.*?)(?:\|(.*?))?\]\]/g;
+            const choiceRegex = /\[\[Choice=\?(.*?)\|(.*?)\]\]/g;
+            const dateRegex = /\[\[DateTime=(.*?)\]\]/g;
 
-        // Find DateTimes
-        while ((match = dateRegex.exec(text)) !== null) {
-            found = true;
-            list.innerHTML += `<li class="list-group-item">🕒 <strong>DateTime:</strong> ${match[1]}</li>`;
+            // Find Inputs
+            while ((match = inputRegex.exec(text)) !== null) {
+                found = true;
+                const label = match[1];
+                const def = match[2] ? ` <span class="badge bg-secondary" style="font-size:0.7em">Default: ${match[2]}</span>` : '';
+                list.innerHTML += `<li class="list-group-item">🔹 <strong>Input:</strong> ${label}${def}</li>`;
+            }
+
+            // Find Areas (Multi-line)
+            while ((match = areaRegex.exec(text)) !== null) {
+                found = true;
+                const label = match[1];
+                const def = match[2] ? ` <span class="badge bg-secondary" style="font-size:0.7em">Default: ${match[2]}</span>` : '';
+                list.innerHTML += `<li class="list-group-item">📝 <strong>Area:</strong> ${label}${def}</li>`;
+            }
+
+            // Find Choices
+            while ((match = choiceRegex.exec(text)) !== null) {
+                found = true;
+                const choices = match[2].split('|').join(', ');
+                list.innerHTML += `<li class="list-group-item">🔸 <strong>Choice:</strong> ${match[1]}<br><small class="text-muted">[${choices}]</small></li>`;
+            }
+
+            // Find DateTimes
+            while ((match = dateRegex.exec(text)) !== null) {
+                found = true;
+                list.innerHTML += `<li class="list-group-item">🕒 <strong>DateTime:</strong> ${match[1]}</li>`;
+            }
+        } else if (mode === 'batch') {
+            const batchRegex = /%([^%]+)%/g;
+            while ((match = batchRegex.exec(text)) !== null) {
+                found = true;
+                list.innerHTML += `<li class="list-group-item">🔹 <strong>Input:</strong> ${match[1]}</li>`;
+            }
         }
 
         if (!found) {
             list.innerHTML = '<li class="list-group-item text-muted">No variables detected.</li>';
         }
-    });
+    }
+
+    document.getElementById('editor-content').addEventListener('input', detectVariables);
+    document.getElementById('parsing-mode').addEventListener('change', detectVariables);
     // Trigger once on load
-    document.getElementById('editor-content').dispatchEvent(new Event('input'));
+    detectVariables();
 </script>
 {% endblock %}
