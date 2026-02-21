@@ -78,6 +78,26 @@ If you prefer to run it without Docker:
     ```
 5.  Access the application at `http://localhost:5000`.
 
+## Configuration
+
+### Security
+
+For production use, you should set a strong `SECRET_KEY` environment variable. This key is used by Flask for session management and security.
+
+**Using Docker Compose:**
+
+You can create a `.env` file in the project root:
+
+```env
+SECRET_KEY=your-super-secret-key-here
+```
+
+Or set it when running `docker-compose`:
+
+```bash
+SECRET_KEY=your-super-secret-key-here docker-compose up -d
+```
+
 ## Data Persistence
 
 Weblint stores its data in a SQLite database located at `/data/snippets.db` inside the container.
