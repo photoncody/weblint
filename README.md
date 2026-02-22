@@ -92,6 +92,12 @@ If you prefer to run it without Docker:
 
 For production use, you should set a strong `SECRET_KEY` environment variable. This key is used by Flask for session management and security.
 
+To generate a secure key, you can run the following command in your terminal:
+
+```bash
+python -c 'import secrets; print(secrets.token_hex(32))'
+```
+
 **Using Docker Compose:**
 
 You can create a `.env` file in the project root:
