@@ -5,7 +5,11 @@ from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'weblint_secret')
+
+secret_key = os.environ.get('SECRET_KEY')
+if not secret_key or secret_key == 'CHANGE_ME' or secret_key == 'weblint_secret':
+    raise ValueError("No secure SECRET_KEY set. Please set the SECRET_KEY environment variable.")
+app.secret_key = secret_key
 
 base_dir = '/data' if os.path.exists('/data') else os.path.join(os.getcwd(), 'data')
 os.makedirs(base_dir, exist_ok=True)
