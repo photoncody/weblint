@@ -19,3 +19,9 @@ env/
 # IDEs
 .idea/
 .vscode/
+
+# Testing and Logs
+.coverage
+htmlcov/
+.pytest_cache/
+*.log

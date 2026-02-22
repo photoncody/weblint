@@ -1,6 +1,7 @@
 services:
   weblint:
-    build: .
+    image: ghcr.io/photoncody/weblint:latest
+    # build: .
     container_name: weblint
     restart: unless-stopped
     ports:
