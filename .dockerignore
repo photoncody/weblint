@@ -1,6 +1,7 @@
 # Ignore git data
 .git/
 .gitignore
+.github/
 
 # Ignore local data
 data/
@@ -19,3 +20,9 @@ env/
 .idea/
 .vscode/
 .DS_Store
+
+# Testing and Logs
+.coverage
+htmlcov/
+.pytest_cache/
+*.log
