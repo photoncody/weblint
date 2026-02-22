@@ -38,6 +38,14 @@ Weblint uses a simple syntax to define variables in your snippets. When you view
   - Automatically inserts the current date/time in the specified format.
   - Supported tokens: `yyyy`, `yy`, `MM`, `M`, `dd`, `d`, `HH`, `H`, `mm`, `ss`.
 
+### Batch Script Mode
+
+In addition to the standard syntax, Weblint supports a "Batch Script" parsing mode. When this mode is selected for a snippet, you can use `%VARIABLE%` syntax to define inputs.
+
+- **Syntax**: `%VARIABLE_NAME%`
+- **Example**: `echo "Hello, %USERNAME%!"`
+- **Usage**: When viewed, Weblint will generate an input field for `USERNAME`.
+
 ## Getting Started
 
 ### Prerequisites
@@ -77,6 +85,32 @@ If you prefer to run it without Docker:
     python3 app.py
     ```
 5.  Access the application at `http://localhost:5000`.
+
+## Configuration
+
+### Security
+
+For production use, you should set a strong `SECRET_KEY` environment variable. This key is used by Flask for session management and security.
+
+To generate a secure key, you can run the following command in your terminal (requires OpenSSL):
+
+```bash
+openssl rand -hex 32
+```
+
+**Using Docker Compose:**
+
+You can create a `.env` file in the project root:
+
+```env
+SECRET_KEY=your-super-secret-key-here
+```
+
+Or set it when running `docker-compose`:
+
+```bash
+SECRET_KEY=your-super-secret-key-here docker-compose up -d
+```
 
 ## Data Persistence
 

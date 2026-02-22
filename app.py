@@ -5,9 +5,12 @@ from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
 
 app = Flask(__name__)
-app.secret_key = 'weblint_secret'
 
-# Determine DB path: Use /data if available (Docker), else local ./data (Dev)
+secret_key = os.environ.get('SECRET_KEY')
+if not secret_key or secret_key == 'CHANGE_ME' or secret_key == 'weblint_secret':
+    raise ValueError("No secure SECRET_KEY set. Please set the SECRET_KEY environment variable.")
+app.secret_key = secret_key
+
 base_dir = '/data' if os.path.exists('/data') else os.path.join(os.getcwd(), 'data')
 os.makedirs(base_dir, exist_ok=True)
 db_path = os.path.join(base_dir, 'snippets.db')
@@ -27,7 +30,6 @@ class Snippet(db.Model):
 with app.app_context():
     db.create_all()
 
-    # Migration: Import existing JSON snippets if DB is empty
     json_file = '/data/snippets.json'
     if os.path.exists(json_file) and Snippet.query.count() == 0:
         try:
@@ -44,7 +46,6 @@ with app.app_context():
                         db.session.add(snippet)
                     db.session.commit()
                     print(f"Successfully migrated {len(data)} snippets from JSON to SQLite.")
-                    # Rename old file to avoid confusion, or keep as backup
                     os.rename(json_file, json_file + '.bak')
         except Exception as e:
             print(f"Error migrating JSON data: {e}")

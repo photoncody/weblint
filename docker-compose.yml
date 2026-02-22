@@ -4,7 +4,10 @@ services:
     container_name: weblint
     restart: unless-stopped
     ports:
-      - "5000:5000" # Access at localhost:5000
+      - "5000:5000"
+    environment:
+      # Generate a secure key with: openssl rand -hex 32
+      - SECRET_KEY=${SECRET_KEY:-CHANGE_ME}
     volumes:
       - weblint_data:/data 
       # OR use bind mount below if you prefer local folder access:
