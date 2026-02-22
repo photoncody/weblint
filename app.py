@@ -1,6 +1,7 @@
 import os
 import uuid
 import json
+import sqlite3
 from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
 
@@ -27,8 +28,32 @@ class Snippet(db.Model):
     type = db.Column(db.String(50), nullable=False)
     parsing_mode = db.Column(db.String(50), default='weblint')
 
+def migrate_database():
+    """Check for missing columns and add them if necessary."""
+    if not os.path.exists(db_path):
+        return
+
+    try:
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+
+        # Check columns in snippet table
+        c.execute("PRAGMA table_info(snippet)")
+        columns = [info[1] for info in c.fetchall()]
+
+        if 'parsing_mode' not in columns:
+            print("Adding 'parsing_mode' column to snippet table...")
+            c.execute("ALTER TABLE snippet ADD COLUMN parsing_mode TEXT DEFAULT 'weblint'")
+            conn.commit()
+            print("Column added successfully.")
+
+        conn.close()
+    except Exception as e:
+        print(f"Error during database migration: {e}")
+
 with app.app_context():
     db.create_all()
+    migrate_database()
 
     json_file = '/data/snippets.json'
     if os.path.exists(json_file) and Snippet.query.count() == 0:
