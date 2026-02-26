@@ -32,6 +32,10 @@ def load_user(user_id):
         return User()
     return None
 
+@app.context_processor
+def inject_auth_status():
+    return dict(auth_enabled=auth_enabled)
+
 @app.before_request
 def require_login():
     if not auth_enabled:

@@ -37,7 +37,9 @@
                 {% if current_user.is_authenticated %}
                 <a href="{{ url_for('logout') }}" class="btn btn-outline-danger btn-sm">Logout</a>
                 {% endif %}
+                {% if not auth_enabled or current_user.is_authenticated %}
                 <a href="/new" class="btn btn-success btn-sm">+ New Snippet</a>
+                {% endif %}
             </div>
         </div>
     </nav>
