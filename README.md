@@ -112,6 +112,26 @@ Or set it when running `docker-compose`:
 SECRET_KEY=your-super-secret-key-here docker-compose up -d
 ```
 
+### Authentication
+
+Weblint supports optional web-based form authentication. This is disabled by default.
+
+To enable authentication, you must set the following environment variables:
+
+- `WEBLINT_USERNAME`: The username for login.
+- `WEBLINT_PASSWORD`: The password for login.
+
+When these variables are present, Weblint will require authentication for all pages except the login page.
+
+**Example (Docker Compose):**
+
+```yaml
+    environment:
+      - SECRET_KEY=your-super-secret-key-here
+      - WEBLINT_USERNAME=admin
+      - WEBLINT_PASSWORD=supersecretpassword
+```
+
 ## Data Persistence
 
 Weblint stores its data in a SQLite database located at `/data/snippets.db` inside the container.
