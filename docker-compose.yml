@@ -9,6 +9,9 @@ services:
     environment:
       # Generate a secure key with: openssl rand -hex 32
       - SECRET_KEY=${SECRET_KEY:-CHANGE_ME}
+      # To enable authentication, uncomment and set the following:
+      # - WEBLINT_USERNAME=admin
+      # - WEBLINT_PASSWORD=password
     volumes:
       - weblint_data:/data 
       # OR use bind mount below if you prefer local folder access:

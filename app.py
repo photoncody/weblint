@@ -1,8 +1,11 @@
 import os
 import uuid
 import json
+import hmac
+from urllib.parse import urlparse
 from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 
 app = Flask(__name__)
 
@@ -10,6 +13,39 @@ secret_key = os.environ.get('SECRET_KEY')
 if not secret_key or secret_key == 'CHANGE_ME' or secret_key == 'weblint_secret':
     raise ValueError("No secure SECRET_KEY set. Please set the SECRET_KEY environment variable.")
 app.secret_key = secret_key
+
+# Auth configuration
+auth_user = os.environ.get('WEBLINT_USERNAME')
+auth_pass = os.environ.get('WEBLINT_PASSWORD')
+auth_enabled = bool(auth_user and auth_pass)
+
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+class User(UserMixin):
+    id = "admin"
+
+@login_manager.user_loader
+def load_user(user_id):
+    if auth_enabled and user_id == "admin":
+        return User()
+    return None
+
+@app.context_processor
+def inject_auth_status():
+    return dict(auth_enabled=auth_enabled)
+
+@app.before_request
+def require_login():
+    if not auth_enabled:
+        return
+    if request.endpoint == 'static': # Allow static files
+        return
+    if request.endpoint == 'login': # Allow login page
+        return
+    if not current_user.is_authenticated:
+        return redirect(url_for('login', next=request.url))
 
 base_dir = '/data' if os.path.exists('/data') else os.path.join(os.getcwd(), 'data')
 os.makedirs(base_dir, exist_ok=True)
@@ -103,6 +139,33 @@ def delete_snippet(s_id):
     db.session.delete(snippet)
     db.session.commit()
     return redirect(url_for('index'))
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if not auth_enabled:
+         return redirect(url_for('index'))
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        if hmac.compare_digest(username, auth_user) and hmac.compare_digest(password, auth_pass):
+            login_user(User())
+            next_page = request.args.get('next')
+            if not next_page or urlparse(next_page).netloc != '':
+                next_page = url_for('index')
+            return redirect(next_page)
+        else:
+            flash('Invalid username or password')
+
+    return render_template('login.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('login'))
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
