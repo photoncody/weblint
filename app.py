@@ -3,7 +3,7 @@ import uuid
 import json
 import hmac
 from urllib.parse import urlparse
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, session
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 
@@ -120,7 +120,15 @@ def index():
     else:
         snippets = Snippet.query.order_by(Snippet.title).all()
     
-    return render_template('index.html', snippets=snippets, query=query)
+    recent_snippets = []
+    if 'recent_snippets' in session:
+        # Fetch the snippets in the order of the IDs in the session
+        for snippet_id in session['recent_snippets']:
+            snippet = db.session.get(Snippet, snippet_id)
+            if snippet:
+                recent_snippets.append(snippet)
+
+    return render_template('index.html', snippets=snippets, query=query, recent_snippets=recent_snippets)
 
 @app.route('/new', methods=['GET', 'POST'])
 def new_snippet():
@@ -161,6 +169,13 @@ def view_snippet(s_id):
     if not snippet:
         from flask import abort
         abort(404)
+
+    recent_snippets = session.get('recent_snippets', [])
+    if s_id in recent_snippets:
+        recent_snippets.remove(s_id)
+    recent_snippets.insert(0, s_id)
+    session['recent_snippets'] = recent_snippets[:5]
+
     return render_template('view.html', snippet=snippet)
 
 @app.route('/delete/<s_id>')
@@ -169,6 +184,12 @@ def delete_snippet(s_id):
     if not snippet:
         from flask import abort
         abort(404)
+
+    recent_snippets = session.get('recent_snippets', [])
+    if s_id in recent_snippets:
+        recent_snippets.remove(s_id)
+        session['recent_snippets'] = recent_snippets
+
     db.session.delete(snippet)
     db.session.commit()
     return redirect(url_for('index'))

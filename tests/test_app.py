@@ -197,3 +197,41 @@ def test_logout(client):
     # Verify logged out by accessing protected route
     response = client.get('/')
     assert response.status_code == 302
+
+def test_recent_snippets(client, db):
+    """Test recent snippets logic."""
+    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+
+    # Create snippets
+    s1 = Snippet(title='Snippet 1', content='Content 1', type='plain', parsing_mode='weblint')
+    s2 = Snippet(title='Snippet 2', content='Content 2', type='plain', parsing_mode='weblint')
+    db.session.add(s1)
+    db.session.add(s2)
+    db.session.commit()
+
+    # Access snippet 1
+    client.get(f'/view/{s1.id}')
+
+    # Check index for recent snippet 1
+    response = client.get('/')
+    assert response.status_code == 200
+    assert b'Recently Selected' in response.data
+    assert b'Snippet 1' in response.data
+
+    # Access snippet 2
+    client.get(f'/view/{s2.id}')
+
+    with client.session_transaction() as sess:
+        assert sess['recent_snippets'][0] == s2.id
+        assert sess['recent_snippets'][1] == s1.id
+
+    # Check index for both
+    response = client.get('/')
+    assert b'Recently Selected' in response.data
+
+    # Delete snippet 1
+    client.get(f'/delete/{s1.id}')
+
+    with client.session_transaction() as sess:
+        assert s1.id not in sess['recent_snippets']
+        assert s2.id in sess['recent_snippets']
