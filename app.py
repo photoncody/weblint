@@ -139,7 +139,10 @@ def new_snippet():
 
 @app.route('/edit/<s_id>', methods=['GET', 'POST'])
 def edit_snippet(s_id):
-    snippet = Snippet.query.get_or_404(s_id)
+    snippet = db.session.get(Snippet, s_id)
+    if not snippet:
+        from flask import abort
+        abort(404)
     
     if request.method == 'POST':
         snippet.title = request.form['title']
@@ -154,12 +157,18 @@ def edit_snippet(s_id):
 
 @app.route('/view/<s_id>')
 def view_snippet(s_id):
-    snippet = Snippet.query.get_or_404(s_id)
+    snippet = db.session.get(Snippet, s_id)
+    if not snippet:
+        from flask import abort
+        abort(404)
     return render_template('view.html', snippet=snippet)
 
 @app.route('/delete/<s_id>')
 def delete_snippet(s_id):
-    snippet = Snippet.query.get_or_404(s_id)
+    snippet = db.session.get(Snippet, s_id)
+    if not snippet:
+        from flask import abort
+        abort(404)
     db.session.delete(snippet)
     db.session.commit()
     return redirect(url_for('index'))
