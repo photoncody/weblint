@@ -94,6 +94,20 @@ def test_edit_snippet(client, db):
     assert updated_snippet.type == 'markdown'
     assert updated_snippet.parsing_mode == 'batch'
 
+def test_edit_snippet_not_found(client):
+    """Test editing a non-existent snippet returns 404."""
+    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+    # Test GET
+    response = client.get('/edit/non-existent-id')
+    assert response.status_code == 404
+    # Test POST
+    response = client.post('/edit/non-existent-id', data={
+        'title': 'New Title',
+        'content': 'New content',
+        'type': 'plain'
+    })
+    assert response.status_code == 404
+
 def test_delete_snippet(client, db):
     """Test deleting a snippet."""
     client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
@@ -119,6 +133,12 @@ def test_delete_snippet(client, db):
     deleted_snippet = db.session.get(Snippet, snippet_id)
     assert deleted_snippet is None
 
+def test_delete_snippet_not_found(client):
+    """Test deleting a non-existent snippet returns 404."""
+    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+    response = client.get('/delete/non-existent-id')
+    assert response.status_code == 404
+
 def test_view_snippet(client, db):
     """Test viewing a snippet."""
     client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
@@ -138,6 +158,12 @@ def test_view_snippet(client, db):
 
     assert response.status_code == 200
     assert b'View Me' in response.data
+
+def test_view_snippet_not_found(client):
+    """Test viewing a non-existent snippet returns 404."""
+    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+    response = client.get('/view/non-existent-id')
+    assert response.status_code == 404
 
 def test_search_snippets(client, db):
     """Test searching snippets."""
