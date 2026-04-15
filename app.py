@@ -62,9 +62,31 @@ class Snippet(db.Model):
     content = db.Column(db.Text, nullable=False)
     type = db.Column(db.String(50), nullable=False)
     parsing_mode = db.Column(db.String(50), default='weblint')
+    notes = db.Column(db.Text, nullable=True)
 
 with app.app_context():
     db.create_all()
+
+    # Automatic Database Migration for Missing Columns
+    import sqlite3
+    try:
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        c.execute("PRAGMA table_info(snippet)")
+        columns = [info[1] for info in c.fetchall()]
+
+        if 'parsing_mode' not in columns:
+            print("Adding 'parsing_mode' column to snippet table...")
+            c.execute("ALTER TABLE snippet ADD COLUMN parsing_mode TEXT DEFAULT 'weblint'")
+
+        if 'notes' not in columns:
+            print("Adding 'notes' column to snippet table...")
+            c.execute("ALTER TABLE snippet ADD COLUMN notes TEXT")
+
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Error checking/migrating schema: {e}")
 
     json_file = '/data/snippets.json'
     if os.path.exists(json_file) and Snippet.query.count() == 0:
@@ -107,7 +129,8 @@ def new_snippet():
             title=request.form['title'],
             content=request.form['content'],
             type=request.form['type'],
-            parsing_mode=request.form.get('parsing_mode', 'weblint')
+            parsing_mode=request.form.get('parsing_mode', 'weblint'),
+            notes=request.form.get('notes')
         )
         db.session.add(new_snippet)
         db.session.commit()
@@ -123,6 +146,7 @@ def edit_snippet(s_id):
         snippet.content = request.form['content']
         snippet.type = request.form['type']
         snippet.parsing_mode = request.form.get('parsing_mode', 'weblint')
+        snippet.notes = request.form.get('notes')
         db.session.commit()
         return redirect(url_for('view_snippet', s_id=s_id))
         
