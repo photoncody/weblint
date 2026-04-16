@@ -7,7 +7,7 @@
         </form>
     </div>
 </div>
-{% if recent_snippets %}
+{% if recent_snippets and not query %}
 <h4 class="mb-3">Recently Selected</h4>
 <div class="list-group mb-4">
     {% for snippet in recent_snippets %}
