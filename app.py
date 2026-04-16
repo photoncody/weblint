@@ -94,14 +94,16 @@ with app.app_context():
             with open(json_file, 'r') as f:
                 data = json.load(f)
                 if isinstance(data, list):
-                    for item in data:
-                        snippet = Snippet(
-                            id=item.get('id', str(uuid.uuid4())),
-                            title=item.get('title', 'Untitled'),
-                            content=item.get('content', ''),
-                            type=item.get('type', 'plain')
-                        )
-                        db.session.add(snippet)
+                    snippets_to_insert = [
+                        {
+                            'id': item.get('id', str(uuid.uuid4())),
+                            'title': item.get('title', 'Untitled'),
+                            'content': item.get('content', ''),
+                            'type': item.get('type', 'plain')
+                        }
+                        for item in data
+                    ]
+                    db.session.bulk_insert_mappings(Snippet, snippets_to_insert)
                     db.session.commit()
                     print(f"Successfully migrated {len(data)} snippets from JSON to SQLite.")
                     os.rename(json_file, json_file + '.bak')
