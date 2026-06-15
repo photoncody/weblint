@@ -13,6 +13,10 @@ cp docker-compose.yml docker-compose.yml.bak
 sed -i 's|image: ghcr.io/photoncody/weblint:latest|# image: ghcr.io/photoncody/weblint:latest|g' docker-compose.yml
 sed -i 's|# build: \.|build: .|g' docker-compose.yml
 
+# Enable authentication in docker-compose.yml so we can test the auth flow
+sed -i 's|# - WEBLINT_USERNAME=admin|- WEBLINT_USERNAME=${WEBLINT_USERNAME}|g' docker-compose.yml
+sed -i 's|# - WEBLINT_PASSWORD=password|- WEBLINT_PASSWORD=${WEBLINT_PASSWORD}|g' docker-compose.yml
+
 # Cleanup function to ensure we teardown the container and restore compose file
 cleanup() {
     echo "Cleaning up..."
