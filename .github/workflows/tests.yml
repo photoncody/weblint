@@ -26,3 +26,13 @@ jobs:
       - name: Run tests
         run: |
           PYTHONPATH=. python -m pytest tests/
+
+  test-docker:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Run Docker tests
+        run: ./tests/test_docker.sh
