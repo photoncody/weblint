@@ -2,8 +2,10 @@ import os
 import uuid
 import json
 import hmac
-from urllib.parse import urlparse
 from flask import Flask, render_template, request, redirect, url_for, flash, session
+
+def is_safe_url(target):
+    return target and target.startswith('/') and not target.startswith('//') and not target.startswith('\\\\')
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 
@@ -209,7 +211,7 @@ def login():
         if hmac.compare_digest(username, auth_user) and hmac.compare_digest(password, auth_pass):
             login_user(User())
             next_page = request.args.get('next')
-            if not next_page or urlparse(next_page).netloc != '':
+            if not is_safe_url(next_page):
                 next_page = url_for('index')
             return redirect(next_page)
         else:
