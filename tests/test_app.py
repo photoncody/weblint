@@ -235,3 +235,61 @@ def test_recent_snippets(client, db):
     with client.session_transaction() as sess:
         assert s1.id not in sess['recent_snippets']
         assert s2.id in sess['recent_snippets']
+
+def test_archive_snippet(client, db):
+    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+
+    # Create snippet
+    client.post('/new', data={'title': 'To Archive', 'content': 'archive me', 'type': 'plain'})
+    snippet = db.session.query(Snippet).filter_by(title='To Archive').first()
+
+    # Archive snippet
+    response = client.get(f'/archive/{snippet.id}', follow_redirects=True)
+    assert response.status_code == 200
+
+    # Verify it is archived
+    db.session.refresh(snippet)
+    assert snippet.archived == True
+
+    # Check it does NOT appear in index
+    response = client.get('/')
+    assert b'To Archive' not in response.data
+
+    # Check it DOES appear in archive list
+    response = client.get('/archive')
+    assert b'To Archive' in response.data
+
+def test_unarchive_snippet(client, db):
+    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+
+    # Create and archive snippet
+    client.post('/new', data={'title': 'To Unarchive', 'content': 'unarchive me', 'type': 'plain'})
+    snippet = db.session.query(Snippet).filter_by(title='To Unarchive').first()
+    client.get(f'/archive/{snippet.id}')
+
+    # Unarchive snippet
+    response = client.get(f'/unarchive/{snippet.id}', follow_redirects=True)
+    assert response.status_code == 200
+
+    # Verify it is not archived
+    db.session.refresh(snippet)
+    assert snippet.archived == False
+
+    # Check it appears in index
+    response = client.get('/')
+    assert b'To Unarchive' in response.data
+
+def test_archive_search(client, db):
+    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+
+    client.post('/new', data={'title': 'Hidden Snippet', 'content': 'super secret', 'type': 'plain'})
+    snippet = db.session.query(Snippet).filter_by(title='Hidden Snippet').first()
+    client.get(f'/archive/{snippet.id}')
+
+    # Normal search shouldn't find it
+    response = client.get('/?q=Hidden')
+    assert b'Hidden Snippet' not in response.data
+
+    # Archive search should find it
+    response = client.get('/archive?q=Hidden')
+    assert b'Hidden Snippet' in response.data
