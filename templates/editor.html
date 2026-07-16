@@ -25,10 +25,6 @@
                     <label class="form-label mb-0">Parts</label>
                     <button type="button" class="btn btn-outline-primary btn-sm" id="add-part-btn">+ Add part</button>
                 </div>
-                <p class="text-muted small mb-2">
-                    Add multiple parts when several templates share the same variables (e.g. Fortigate, router, and switch configs).
-                    Variables are filled in once and each part gets its own preview and copy on the view page.
-                </p>
                 <div id="parts-container"></div>
             </div>
 
@@ -69,6 +65,12 @@
                 <small>
                     <strong>Notes Section:</strong><br>
                     Use the notes section to add extra instructions or context about the snippet. These notes are only visible on the snippet's page and won't be included in the copied output.
+                </small>
+            </div>
+            <div class="mt-3 alert alert-light">
+                <small>
+                    <strong>Multi-part Snippets:</strong><br>
+                    Add multiple parts when several templates share the same variables (e.g. Fortigate, router, and switch configs). Variables are filled in once and each part gets its own preview and copy on the view page.
                 </small>
             </div>
         </div>
