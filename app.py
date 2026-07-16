@@ -65,6 +65,73 @@ class Snippet(db.Model):
     type = db.Column(db.String(50), nullable=False)
     parsing_mode = db.Column(db.String(50), default='weblint')
     notes = db.Column(db.Text, nullable=True)
+    parts = db.Column(db.Text, nullable=True)  # JSON array of {name, content, type} when multi-part
+
+    @property
+    def part_list(self):
+        return get_snippet_parts(self)
+
+    @property
+    def part_count(self):
+        return len(get_snippet_parts(self))
+
+def get_snippet_parts(snippet):
+    """Return a normalized list of parts for a snippet (legacy single-part or multi-part)."""
+    if snippet.parts:
+        try:
+            parsed = json.loads(snippet.parts)
+            if isinstance(parsed, list) and len(parsed) >= 2:
+                normalized = [
+                    {
+                        'name': (p.get('name') or f'Part {i + 1}').strip() or f'Part {i + 1}',
+                        'content': p.get('content', ''),
+                        'type': p.get('type', 'plain') if p.get('type') in ('plain', 'markdown', 'html') else 'plain',
+                    }
+                    for i, p in enumerate(parsed)
+                    if isinstance(p, dict)
+                ]
+                if len(normalized) >= 2:
+                    return normalized
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            pass
+    return [{
+        'name': '',
+        'content': snippet.content or '',
+        'type': snippet.type if snippet.type in ('plain', 'markdown', 'html') else 'plain',
+    }]
+
+def parts_from_form(form):
+    """Build parts list from editor form fields (part_* arrays or legacy content/type)."""
+    contents = form.getlist('part_content')
+    if contents:
+        names = form.getlist('part_name')
+        types = form.getlist('part_type')
+        parts = []
+        for i, content in enumerate(contents):
+            name = names[i].strip() if i < len(names) and names[i] else f'Part {i + 1}'
+            ptype = types[i] if i < len(types) and types[i] in ('plain', 'markdown', 'html') else 'plain'
+            parts.append({'name': name, 'content': content, 'type': ptype})
+        return parts
+
+    # Legacy single-field form
+    return [{
+        'name': 'Part 1',
+        'content': form.get('content', ''),
+        'type': form.get('type', 'plain') if form.get('type') in ('plain', 'markdown', 'html') else 'plain',
+    }]
+
+def apply_parts_to_snippet(snippet, parts):
+    """Persist parts on a snippet; sync content/type to the first part; clear parts when single."""
+    if not parts:
+        parts = [{'name': 'Part 1', 'content': '', 'type': 'plain'}]
+
+    snippet.content = parts[0]['content']
+    snippet.type = parts[0]['type']
+
+    if len(parts) >= 2:
+        snippet.parts = json.dumps(parts)
+    else:
+        snippet.parts = None
 
 with app.app_context():
     db.create_all()
@@ -84,6 +151,10 @@ with app.app_context():
         if 'notes' not in columns:
             print("Adding 'notes' column to snippet table...")
             c.execute("ALTER TABLE snippet ADD COLUMN notes TEXT")
+
+        if 'parts' not in columns:
+            print("Adding 'parts' column to snippet table...")
+            c.execute("ALTER TABLE snippet ADD COLUMN parts TEXT")
 
         conn.commit()
         conn.close()
@@ -137,17 +208,23 @@ def index():
 @app.route('/new', methods=['GET', 'POST'])
 def new_snippet():
     if request.method == 'POST':
-        new_snippet = Snippet(
+        parts = parts_from_form(request.form)
+        if not any(p['content'].strip() for p in parts):
+            flash('At least one part must have content.')
+            return render_template('editor.html', snippet=None, form_parts=parts), 400
+
+        new_snip = Snippet(
             title=request.form['title'],
-            content=request.form['content'],
-            type=request.form['type'],
+            content=parts[0]['content'],
+            type=parts[0]['type'],
             parsing_mode=request.form.get('parsing_mode', 'weblint'),
             notes=request.form.get('notes')
         )
-        db.session.add(new_snippet)
+        apply_parts_to_snippet(new_snip, parts)
+        db.session.add(new_snip)
         db.session.commit()
-        return redirect(url_for('view_snippet', s_id=new_snippet.id))
-    return render_template('editor.html', snippet=None)
+        return redirect(url_for('view_snippet', s_id=new_snip.id))
+    return render_template('editor.html', snippet=None, form_parts=None)
 
 @app.route('/edit/<s_id>', methods=['GET', 'POST'])
 def edit_snippet(s_id):
@@ -157,15 +234,19 @@ def edit_snippet(s_id):
         abort(404)
     
     if request.method == 'POST':
+        parts = parts_from_form(request.form)
+        if not any(p['content'].strip() for p in parts):
+            flash('At least one part must have content.')
+            return render_template('editor.html', snippet=snippet, form_parts=parts), 400
+
         snippet.title = request.form['title']
-        snippet.content = request.form['content']
-        snippet.type = request.form['type']
         snippet.parsing_mode = request.form.get('parsing_mode', 'weblint')
         snippet.notes = request.form.get('notes')
+        apply_parts_to_snippet(snippet, parts)
         db.session.commit()
         return redirect(url_for('view_snippet', s_id=s_id))
         
-    return render_template('editor.html', snippet=snippet)
+    return render_template('editor.html', snippet=snippet, form_parts=get_snippet_parts(snippet))
 
 @app.route('/view/<s_id>')
 def view_snippet(s_id):
@@ -180,7 +261,8 @@ def view_snippet(s_id):
     recent_snippets.insert(0, s_id)
     session['recent_snippets'] = recent_snippets[:5]
 
-    return render_template('view.html', snippet=snippet)
+    parts = get_snippet_parts(snippet)
+    return render_template('view.html', snippet=snippet, parts=parts)
 
 @app.route('/delete/<s_id>')
 def delete_snippet(s_id):

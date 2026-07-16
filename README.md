@@ -7,6 +7,7 @@ Weblint is a snippet and template manager designed to help you organize and reus
 - **Snippet Management**: Create, edit, view, and delete snippets.
 - **Dynamic Templating**: Define variables within your snippets to create reusable templates.
 - **Variable Types**: Supports single-line inputs, multi-line text areas, dropdown choices, and date/time pickers.
+- **Multi-part Snippets**: Group related templates (for example device configs) that share the same variables, with a separate Live Preview and Copy Output per part.
 - **Live Preview**: See your filled-in template update in real-time as you enter variables.
 - **Multi-Format Support**: Create snippets in Plain Text, Markdown, or HTML.
 - **Search**: Quickly find snippets by title or content.
@@ -45,6 +46,15 @@ In addition to the standard syntax, Weblint supports a "Batch Script" parsing mo
 - **Syntax**: `%VARIABLE_NAME%`
 - **Example**: `echo "Hello, %USERNAME%!"`
 - **Usage**: When viewed, Weblint will generate an input field for `USERNAME`.
+
+## Multi-part Snippets
+
+Use multiple parts when several templates share the same variables but need separate outputs—for example Fortigate, Cisco router, and Cisco switch configs for the same site.
+
+- In the editor, click **+ Add part** to add another named content block.
+- Parsing mode and notes are shared for the whole snippet; each part has its own name, content, and type.
+- On the view page, fill in variables once. Each part shows its own Live Preview, Raw Source, and Copy Output button.
+- Single-part snippets behave exactly as before.
 
 ## Getting Started
 

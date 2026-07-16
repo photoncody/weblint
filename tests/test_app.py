@@ -1,5 +1,6 @@
+import json
 import pytest
-from app import Snippet
+from app import Snippet, get_snippet_parts
 
 def test_index_unauthenticated(client):
     """Test that index redirects to login when not authenticated."""
@@ -235,3 +236,132 @@ def test_recent_snippets(client, db):
     with client.session_transaction() as sess:
         assert s1.id not in sess['recent_snippets']
         assert s2.id in sess['recent_snippets']
+
+def test_create_multipart_snippet(client, db):
+    """Test creating a multi-part snippet with shared-variable parts."""
+    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+    response = client.post('/new', data={
+        'title': 'Site Edge Stack',
+        'parsing_mode': 'weblint',
+        'notes': 'Shared IPs across devices',
+        'part_name': ['Fortigate', 'Cisco Router', 'Cisco Switch'],
+        'part_content': [
+            'set ip [[Input=WAN_IP|1.2.3.4]]',
+            'ip address [[Input=WAN_IP|1.2.3.4]]',
+            'vlan ip [[Input=LAN_IP|10.0.0.1]]',
+        ],
+        'part_type': ['plain', 'plain', 'plain'],
+    }, follow_redirects=True)
+
+    assert response.status_code == 200
+    assert b'Site Edge Stack' in response.data
+    assert b'Fortigate' in response.data
+    assert b'Cisco Router' in response.data
+    assert b'Cisco Switch' in response.data
+
+    snippet = Snippet.query.filter_by(title='Site Edge Stack').first()
+    assert snippet is not None
+    assert snippet.parts is not None
+    parts = json.loads(snippet.parts)
+    assert len(parts) == 3
+    assert parts[0]['name'] == 'Fortigate'
+    assert parts[1]['name'] == 'Cisco Router'
+    assert parts[2]['name'] == 'Cisco Switch'
+    # content/type synced to first part
+    assert snippet.content == 'set ip [[Input=WAN_IP|1.2.3.4]]'
+    assert snippet.type == 'plain'
+    assert snippet.part_count == 3
+
+def test_create_single_part_clears_parts_column(client, db):
+    """Single-part create should leave parts null (legacy mode)."""
+    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+    client.post('/new', data={
+        'title': 'Single Part',
+        'parsing_mode': 'weblint',
+        'part_name': ['Only'],
+        'part_content': ['Hello [[Input=Name|World]]'],
+        'part_type': ['markdown'],
+    }, follow_redirects=True)
+
+    snippet = Snippet.query.filter_by(title='Single Part').first()
+    assert snippet is not None
+    assert snippet.parts is None
+    assert snippet.content == 'Hello [[Input=Name|World]]'
+    assert snippet.type == 'markdown'
+    assert snippet.part_count == 1
+    assert get_snippet_parts(snippet)[0]['content'] == snippet.content
+
+def test_edit_multipart_snippet(client, db):
+    """Test editing into and within multi-part snippets."""
+    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+
+    snippet = Snippet(
+        title='Device Pack',
+        content='Original',
+        type='plain',
+        parsing_mode='weblint'
+    )
+    db.session.add(snippet)
+    db.session.commit()
+    snippet_id = snippet.id
+
+    response = client.post(f'/edit/{snippet_id}', data={
+        'title': 'Device Pack Updated',
+        'parsing_mode': 'weblint',
+        'notes': 'Updated',
+        'part_name': ['Firewall', 'Switch'],
+        'part_content': ['fw [[Input=IP|10.0.0.1]]', 'sw [[Input=IP|10.0.0.1]]'],
+        'part_type': ['plain', 'html'],
+    }, follow_redirects=True)
+
+    assert response.status_code == 200
+    assert b'Device Pack Updated' in response.data
+    assert b'Firewall' in response.data
+    assert b'Switch' in response.data
+
+    updated = db.session.get(Snippet, snippet_id)
+    assert updated.title == 'Device Pack Updated'
+    assert updated.part_count == 2
+    parts = json.loads(updated.parts)
+    assert parts[1]['type'] == 'html'
+    assert updated.content == 'fw [[Input=IP|10.0.0.1]]'
+
+def test_view_legacy_single_part_still_works(client, db):
+    """Legacy snippets without parts JSON still render one preview."""
+    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+    snippet = Snippet(
+        title='Legacy Snippet',
+        content='Hi [[Input=Name|Ada]]',
+        type='plain',
+        parsing_mode='weblint',
+        parts=None
+    )
+    db.session.add(snippet)
+    db.session.commit()
+
+    response = client.get(f'/view/{snippet.id}')
+    assert response.status_code == 200
+    assert b'Legacy Snippet' in response.data
+    assert b'Live Preview' in response.data
+    assert b'parts-data' in response.data
+
+def test_multipart_badge_on_index(client, db):
+    """Index shows a parts count for multi-part snippets."""
+    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+    snippet = Snippet(
+        title='Multi Badge',
+        content='a',
+        type='plain',
+        parsing_mode='weblint',
+        parts=json.dumps([
+            {'name': 'A', 'content': 'a', 'type': 'plain'},
+            {'name': 'B', 'content': 'b', 'type': 'plain'},
+        ])
+    )
+    db.session.add(snippet)
+    db.session.commit()
+
+    response = client.get('/')
+    assert response.status_code == 200
+    assert b'Multi Badge' in response.data
+    assert b'2 parts' in response.data
