@@ -60,7 +60,6 @@
     const parts = JSON.parse(document.getElementById('parts-data').textContent);
     const snippetParsingMode = document.getElementById('snippet-parsing-mode').innerText;
     const formContainer = document.getElementById('form-container');
-    const isMultiPart = parts.length > 1;
 
     function formatDateTime(formatStr) {
         const now = new Date();
@@ -184,7 +183,6 @@
     function init() {
         formContainer.innerHTML = '';
 
-        let index = 0;
         let uniqueKeys = new Set();
         let hasVariables = false;
         let combinedForDateCheck = '';
