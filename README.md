@@ -71,9 +71,9 @@ Prebuilt standalone binaries are published automatically by GitHub Actions whene
 | --- | --- |
 | Windows (x64) | `weblint-windows-x64.zip` |
 | Linux (x64) | `weblint-linux-x64.zip` |
-| macOS (Intel) | `weblint-macos-x64.zip` |
 | macOS (Apple Silicon) | `weblint-macos-arm64.zip` |
 
+Intel Macs are not covered by CI (GitHub’s macOS runners are Apple Silicon). On Intel macOS, build from source with the `pyinstaller weblint.spec` steps below, or use the Python install.
 1. Unzip the archive.
 2. Run the `weblint` binary (double-click or from a terminal).
 3. Your browser should open to `http://127.0.0.1:5000/`.

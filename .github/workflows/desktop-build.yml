@@ -27,11 +27,9 @@ jobs:
             artifact: weblint-windows-x64
             binary: weblint.exe
             out_name: weblint-windows-x64.exe
-          - os: macos-13
-            artifact: weblint-macos-x64
-            binary: weblint
-            out_name: weblint-macos-x64
-          - os: macos-14
+          # GitHub-hosted macOS runners are Apple Silicon (arm64).
+          # Intel Mac users can build from source with: pyinstaller weblint.spec
+          - os: macos-latest
             artifact: weblint-macos-arm64
             binary: weblint
             out_name: weblint-macos-arm64
