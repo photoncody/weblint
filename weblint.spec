@@ -1,14 +1,17 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec for Weblint standalone binaries.
+PyInstaller spec for the Weblint desktop app (native window via pywebview).
 
 Build locally:
-  pip install -r requirements.txt pyinstaller
+  pip install -r requirements-desktop.txt pyinstaller
   pyinstaller weblint.spec
 
-Output lands in dist/weblint (or dist/weblint.exe on Windows).
+Output:
+  Windows/Linux: dist/weblint(.exe)
+  macOS:         dist/Weblint.app  (and dist/weblint)
 """
 import os
+import sys
 
 block_cipher = None
 root = os.path.abspath(SPECPATH)
@@ -25,6 +28,13 @@ a = Analysis(
         'flask_sqlalchemy',
         'flask_login',
         'sqlalchemy.sql.default_comparator',
+        'webview',
+        'webview.platforms',
+        # Platform backends (only the matching one is used at runtime).
+        'webview.platforms.winforms',
+        'webview.platforms.edgechromium',
+        'webview.platforms.cocoa',
+        'webview.platforms.gtk',
     ],
     hookspath=[],
     hooksconfig={},
@@ -38,6 +48,8 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# Windowed build: no console flash on Windows/macOS double-click.
+# Errors are written to data/weblint.log by desktop.py.
 exe = EXE(
     pyz,
     a.scripts,
@@ -52,10 +64,24 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=True,
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
 )
+
+# Proper double-clickable bundle on macOS (hides the Terminal).
+if sys.platform == 'darwin':
+    app = BUNDLE(
+        exe,
+        name='Weblint.app',
+        icon=None,
+        bundle_identifier='com.photoncody.weblint',
+        info_plist={
+            'NSHighResolutionCapable': 'True',
+            'CFBundleName': 'Weblint',
+            'CFBundleDisplayName': 'Weblint',
+        },
+    )

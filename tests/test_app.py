@@ -403,3 +403,36 @@ def test_resource_root_includes_templates():
     root = resource_root()
     assert os.path.isdir(os.path.join(root, 'templates'))
     assert os.path.isfile(os.path.join(root, 'templates', 'index.html'))
+
+
+def test_find_free_port_and_wait_helpers():
+    """Desktop helpers can bind a free port and detect a listening server."""
+    import socket
+    import threading
+    from desktop import _find_free_port, _wait_for_server
+
+    port = _find_free_port()
+    assert isinstance(port, int)
+    assert 0 < port < 65536
+
+    # Nothing listening yet
+    assert _wait_for_server('127.0.0.1', port, timeout=0.3) is False
+
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(('127.0.0.1', port))
+    srv.listen(1)
+
+    def _accept():
+        try:
+            conn, _ = srv.accept()
+            conn.close()
+        except OSError:
+            pass
+
+    t = threading.Thread(target=_accept, daemon=True)
+    t.start()
+    try:
+        assert _wait_for_server('127.0.0.1', port, timeout=2.0) is True
+    finally:
+        srv.close()

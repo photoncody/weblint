@@ -1,0 +1,4 @@
+# Desktop / local GUI packaging dependencies (pywebview native window).
+# Server and Docker installs only need requirements.txt.
+-r requirements.txt
+pywebview>=5.0,<6

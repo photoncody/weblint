@@ -362,12 +362,17 @@ def logout():
     return redirect(url_for('login'))
 
 def run_server(host=None, port=None, open_browser=False):
-    """Start the Flask development server (used by __main__ and the desktop binary)."""
+    """Start the Flask development server (used by __main__ and browser fallback)."""
     host = host or os.environ.get('WEBLINT_HOST', '127.0.0.1' if is_desktop_mode() else '0.0.0.0')
     port = int(port or os.environ.get('WEBLINT_PORT', '5000'))
     debug_mode = os.environ.get('FLASK_DEBUG', 'false').lower() == 'true'
 
-    if open_browser or is_desktop_mode():
+    # Prefer the native desktop window; only auto-open a browser as an explicit fallback.
+    should_open_browser = open_browser or (
+        is_desktop_mode()
+        and os.environ.get('WEBLINT_USE_BROWSER', '').lower() in ('1', 'true', 'yes')
+    )
+    if should_open_browser:
         import threading
         import webbrowser
         url = f'http://127.0.0.1:{port}/'
@@ -375,8 +380,17 @@ def run_server(host=None, port=None, open_browser=False):
         print(f'Data directory: {base_dir}')
         print('Press Ctrl+C to stop.')
         threading.Timer(1.25, lambda: webbrowser.open(url)).start()
+    elif is_desktop_mode():
+        print(f'Weblint server listening on http://{host}:{port}/')
+        print(f'Data directory: {base_dir}')
+        print('Tip: run desktop.py for a native app window, or set WEBLINT_USE_BROWSER=1.')
 
     app.run(host=host, port=port, debug=debug_mode, use_reloader=False)
 
 if __name__ == '__main__':
-    run_server()
+    # When launched as `python app.py` in desktop mode, prefer the native window.
+    if is_desktop_mode() and os.environ.get('WEBLINT_USE_BROWSER', '').lower() not in ('1', 'true', 'yes'):
+        from desktop import main as desktop_main
+        desktop_main()
+    else:
+        run_server()
