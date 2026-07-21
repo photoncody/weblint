@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% block title %}Archived Snippets - WebLint{% endblock %}
+{% block content %}
+<h4 class="mb-3">Archived Snippets</h4>
+<div class="list-group">
+    {% for snippet in snippets %}
+    <a href="{{ url_for('view_snippet', s_id=snippet.id) }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+        <div>
+            <h5 class="mb-1">{{ snippet.title }}</h5>
+            <small class="text-muted">
+                {{ snippet.type|upper }}
+                {% if snippet.part_count > 1 %}
+                · {{ snippet.part_count }} parts
+                {% endif %}
+            </small>
+        </div>
+        <span class="badge bg-secondary rounded-pill">View</span>
+    </a>
+    {% else %}
+    <div class="alert alert-info">No archived snippets.</div>
+    {% endfor %}
+</div>
+{% endblock %}
