@@ -39,6 +39,17 @@ def migrate():
     else:
         print("'parts' column already exists.")
 
+    if 'archived' not in columns:
+        print("Adding 'archived' column to snippet table...")
+        try:
+            c.execute("ALTER TABLE snippet ADD COLUMN archived INTEGER DEFAULT 0 NOT NULL")
+            conn.commit()
+            print("Column added successfully.")
+        except Exception as e:
+            print(f"Error adding column: {e}")
+    else:
+        print("'archived' column already exists.")
+
     conn.close()
 
 if __name__ == '__main__':

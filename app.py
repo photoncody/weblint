@@ -120,6 +120,7 @@ class Snippet(db.Model):
     parsing_mode = db.Column(db.String(50), default='weblint')
     notes = db.Column(db.Text, nullable=True)
     parts = db.Column(db.Text, nullable=True)  # JSON array of {name, content, type} when multi-part
+    archived = db.Column(db.Boolean, default=False, nullable=False)
 
     @property
     def part_list(self):
@@ -210,6 +211,10 @@ with app.app_context():
             print("Adding 'parts' column to snippet table...")
             c.execute("ALTER TABLE snippet ADD COLUMN parts TEXT")
 
+        if 'archived' not in columns:
+            print("Adding 'archived' column to snippet table...")
+            c.execute("ALTER TABLE snippet ADD COLUMN archived INTEGER DEFAULT 0 NOT NULL")
+
         conn.commit()
         conn.close()
     except Exception as e:
@@ -243,18 +248,19 @@ def index():
     
     if query:
         snippets = Snippet.query.filter(
+            Snippet.archived == False,
             (Snippet.title.ilike(f'%{query}%')) | 
             (Snippet.content.ilike(f'%{query}%'))
         ).order_by(Snippet.title).all()
     else:
-        snippets = Snippet.query.order_by(Snippet.title).all()
+        snippets = Snippet.query.filter_by(archived=False).order_by(Snippet.title).all()
     
     recent_snippets = []
     if 'recent_snippets' in session:
         # Fetch the snippets in the order of the IDs in the session
         for snippet_id in session['recent_snippets']:
             snippet = db.session.get(Snippet, snippet_id)
-            if snippet:
+            if snippet and not snippet.archived:
                 recent_snippets.append(snippet)
 
     return render_template('index.html', snippets=snippets, query=query, recent_snippets=recent_snippets)
@@ -309,17 +315,18 @@ def view_snippet(s_id):
         from flask import abort
         abort(404)
 
-    recent_snippets = session.get('recent_snippets', [])
-    if s_id in recent_snippets:
-        recent_snippets.remove(s_id)
-    recent_snippets.insert(0, s_id)
-    session['recent_snippets'] = recent_snippets[:5]
+    if not snippet.archived:
+        recent_snippets = session.get('recent_snippets', [])
+        if s_id in recent_snippets:
+            recent_snippets.remove(s_id)
+        recent_snippets.insert(0, s_id)
+        session['recent_snippets'] = recent_snippets[:5]
 
     parts = get_snippet_parts(snippet)
     return render_template('view.html', snippet=snippet, parts=parts)
 
-@app.route('/delete/<s_id>')
-def delete_snippet(s_id):
+@app.route('/archive/<s_id>')
+def archive_snippet(s_id):
     snippet = db.session.get(Snippet, s_id)
     if not snippet:
         from flask import abort
@@ -330,8 +337,44 @@ def delete_snippet(s_id):
         recent_snippets.remove(s_id)
         session['recent_snippets'] = recent_snippets
 
+    snippet.archived = True
+    db.session.commit()
+    return redirect(url_for('index'))
+
+@app.route('/unarchive/<s_id>')
+def unarchive_snippet(s_id):
+    snippet = db.session.get(Snippet, s_id)
+    if not snippet:
+        from flask import abort
+        abort(404)
+
+    snippet.archived = False
+    db.session.commit()
+    return redirect(url_for('archived_snippets'))
+
+@app.route('/archived')
+def archived_snippets():
+    snippets = Snippet.query.filter_by(archived=True).order_by(Snippet.title).all()
+    return render_template('archived.html', snippets=snippets)
+
+@app.route('/delete/<s_id>')
+def delete_snippet(s_id):
+    snippet = db.session.get(Snippet, s_id)
+    if not snippet:
+        from flask import abort
+        abort(404)
+
+    was_archived = snippet.archived
+
+    recent_snippets = session.get('recent_snippets', [])
+    if s_id in recent_snippets:
+        recent_snippets.remove(s_id)
+        session['recent_snippets'] = recent_snippets
+
     db.session.delete(snippet)
     db.session.commit()
+    if was_archived:
+        return redirect(url_for('archived_snippets'))
     return redirect(url_for('index'))
 
 @app.route('/login', methods=['GET', 'POST'])

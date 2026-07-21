@@ -4,10 +4,40 @@
 {% block title %}{{ snippet.title }} - WebLint{% endblock %}
 
 {% block content %}
+<style>
+    /* Solid greys that stay readable in both Bootstrap themes */
+    .btn-archive {
+        --bs-btn-color: #1f2328;
+        --bs-btn-bg: #cfd4da;
+        --bs-btn-border-color: #cfd4da;
+        --bs-btn-hover-color: #1f2328;
+        --bs-btn-hover-bg: #b8bec6;
+        --bs-btn-hover-border-color: #b8bec6;
+        --bs-btn-active-color: #1f2328;
+        --bs-btn-active-bg: #a7aeb6;
+        --bs-btn-active-border-color: #a7aeb6;
+    }
+    .btn-unarchive {
+        --bs-btn-color: #f1f3f5;
+        --bs-btn-bg: #495057;
+        --bs-btn-border-color: #495057;
+        --bs-btn-hover-color: #f1f3f5;
+        --bs-btn-hover-bg: #3d4349;
+        --bs-btn-hover-border-color: #3d4349;
+        --bs-btn-active-color: #f1f3f5;
+        --bs-btn-active-bg: #343a40;
+        --bs-btn-active-border-color: #343a40;
+    }
+</style>
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h3>{{ snippet.title }}</h3>
     <div>
         <a href="{{ url_for('edit_snippet', s_id=snippet.id) }}" class="btn btn-warning btn-sm">Edit</a>
+        {% if snippet.archived %}
+        <a href="{{ url_for('unarchive_snippet', s_id=snippet.id) }}" class="btn btn-unarchive btn-sm" onclick="return confirm('Unarchive this snippet?')">Unarchive</a>
+        {% else %}
+        <a href="{{ url_for('archive_snippet', s_id=snippet.id) }}" class="btn btn-archive btn-sm" onclick="return confirm('Archive this snippet?')">Archive</a>
+        {% endif %}
         <a href="{{ url_for('delete_snippet', s_id=snippet.id) }}" class="btn btn-danger btn-sm" onclick="return confirm('Delete this snippet?')">Delete</a>
     </div>
 </div>

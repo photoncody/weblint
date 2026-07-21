@@ -237,6 +237,161 @@ def test_recent_snippets(client, db):
         assert s1.id not in sess['recent_snippets']
         assert s2.id in sess['recent_snippets']
 
+def test_archive_snippet(client, db):
+    """Test archiving a snippet moves it off the index and onto /archived."""
+    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+
+    snippet = Snippet(
+        title='To be archived',
+        content='Archive me',
+        type='plain',
+        parsing_mode='weblint'
+    )
+    db.session.add(snippet)
+    db.session.commit()
+    snippet_id = snippet.id
+
+    response = client.get('/')
+    assert b'To be archived' in response.data
+
+    response = client.get(f'/archive/{snippet_id}', follow_redirects=True)
+    assert response.status_code == 200
+
+    archived = db.session.get(Snippet, snippet_id)
+    assert archived is not None
+    assert archived.archived is True
+
+    response = client.get('/')
+    assert b'To be archived' not in response.data
+
+    response = client.get('/archived')
+    assert response.status_code == 200
+    assert b'To be archived' in response.data
+    assert b'Archived Snippets' in response.data
+
+def test_unarchive_snippet(client, db):
+    """Test unarchiving restores a snippet to the index."""
+    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+
+    snippet = Snippet(
+        title='Restore Me',
+        content='Unarchive me',
+        type='plain',
+        parsing_mode='weblint',
+        archived=True
+    )
+    db.session.add(snippet)
+    db.session.commit()
+    snippet_id = snippet.id
+
+    response = client.get(f'/unarchive/{snippet_id}', follow_redirects=True)
+    assert response.status_code == 200
+
+    restored = db.session.get(Snippet, snippet_id)
+    assert restored is not None
+    assert restored.archived is False
+
+    response = client.get('/')
+    assert b'Restore Me' in response.data
+
+    response = client.get('/archived')
+    assert b'Restore Me' not in response.data
+
+def test_search_excludes_archived(client, db):
+    """Test search on the index excludes archived snippets."""
+    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+
+    db.session.add(Snippet(title='Active Apple', content='Apple content', type='plain', parsing_mode='weblint'))
+    db.session.add(Snippet(
+        title='Archived Apple',
+        content='Apple content archived',
+        type='plain',
+        parsing_mode='weblint',
+        archived=True
+    ))
+    db.session.commit()
+
+    response = client.get('/?q=apple')
+    assert response.status_code == 200
+    assert b'Active Apple' in response.data
+    assert b'Archived Apple' not in response.data
+
+def test_archive_removes_from_recent(client, db):
+    """Test archiving removes a snippet from the recent list."""
+    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+
+    snippet = Snippet(title='Recent Archive', content='Content', type='plain', parsing_mode='weblint')
+    db.session.add(snippet)
+    db.session.commit()
+
+    client.get(f'/view/{snippet.id}')
+    with client.session_transaction() as sess:
+        assert snippet.id in sess['recent_snippets']
+
+    client.get(f'/archive/{snippet.id}')
+
+    with client.session_transaction() as sess:
+        assert snippet.id not in sess['recent_snippets']
+
+    response = client.get('/')
+    assert b'Recent Archive' not in response.data
+    assert b'Recently Selected' not in response.data
+
+def test_view_archived_snippet(client, db):
+    """Test viewing an archived snippet still works and does not add it to recent."""
+    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+
+    snippet = Snippet(
+        title='Archived View',
+        content='Still viewable',
+        type='plain',
+        parsing_mode='weblint',
+        archived=True
+    )
+    db.session.add(snippet)
+    db.session.commit()
+
+    response = client.get(f'/view/{snippet.id}')
+    assert response.status_code == 200
+    assert b'Archived View' in response.data
+    assert b'Unarchive' in response.data
+
+    with client.session_transaction() as sess:
+        assert snippet.id not in sess.get('recent_snippets', [])
+
+def test_archive_snippet_not_found(client):
+    """Test archiving a non-existent snippet returns 404."""
+    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+    response = client.get('/archive/non-existent-id')
+    assert response.status_code == 404
+
+def test_unarchive_snippet_not_found(client):
+    """Test unarchiving a non-existent snippet returns 404."""
+    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+    response = client.get('/unarchive/non-existent-id')
+    assert response.status_code == 404
+
+def test_delete_archived_snippet_redirects_to_archived(client, db):
+    """Deleting an archived snippet redirects back to the archived list."""
+    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+
+    snippet = Snippet(
+        title='Delete Archived',
+        content='Gone',
+        type='plain',
+        parsing_mode='weblint',
+        archived=True
+    )
+    db.session.add(snippet)
+    db.session.commit()
+    snippet_id = snippet.id
+
+    response = client.get(f'/delete/{snippet_id}', follow_redirects=False)
+    assert response.status_code == 302
+    assert '/archived' in response.headers.get('Location', '')
+
+    assert db.session.get(Snippet, snippet_id) is None
+
 def test_create_multipart_snippet(client, db):
     """Test creating a multi-part snippet with shared-variable parts."""
     client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
@@ -271,7 +426,7 @@ def test_create_multipart_snippet(client, db):
     assert snippet.content == 'set ip [[Input=WAN_IP|1.2.3.4]]'
     assert snippet.type == 'plain'
     assert snippet.part_count == 3
-
+    assert snippet.archived is False
 def test_create_single_part_clears_parts_column(client, db):
     """Single-part create should leave parts null (legacy mode)."""
     client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
