@@ -1,7 +1,9 @@
 import os
+import sys
 import uuid
 import json
 import hmac
+import secrets
 from flask import Flask, render_template, request, redirect, url_for, flash, session
 
 def is_safe_url(target):
@@ -9,12 +11,68 @@ def is_safe_url(target):
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 
-app = Flask(__name__)
+def is_frozen():
+    """True when running as a PyInstaller (or similar) bundled executable."""
+    return getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS')
 
-secret_key = os.environ.get('SECRET_KEY')
-if not secret_key or secret_key == 'CHANGE_ME' or secret_key == 'weblint_secret':
+def is_desktop_mode():
+    """Desktop/local packaged mode: auto secret key, local data dir, browser launch."""
+    if is_frozen():
+        return True
+    return os.environ.get('WEBLINT_DESKTOP', '').lower() in ('1', 'true', 'yes')
+
+def resource_root():
+    """Directory that contains templates/ and static/ (bundle dir when frozen)."""
+    if is_frozen():
+        return sys._MEIPASS
+    return os.path.dirname(os.path.abspath(__file__))
+
+def resolve_data_dir():
+    """Where SQLite and optional secret.key live."""
+    if is_frozen():
+        # Keep data next to the executable so installs are portable and easy to find.
+        return os.path.join(os.path.dirname(sys.executable), 'data')
+    if os.path.exists('/data'):
+        return '/data'
+    return os.path.join(os.getcwd(), 'data')
+
+def resolve_secret_key(data_dir):
+    """
+    Prefer SECRET_KEY from the environment.
+    In desktop/frozen mode, persist an auto-generated key under data/ so users
+    do not need to configure env vars to run locally.
+    """
+    secret_key = os.environ.get('SECRET_KEY')
+    if secret_key and secret_key not in ('CHANGE_ME', 'weblint_secret'):
+        return secret_key
+
+    if is_desktop_mode():
+        os.makedirs(data_dir, exist_ok=True)
+        key_path = os.path.join(data_dir, 'secret.key')
+        if os.path.isfile(key_path):
+            with open(key_path, 'r', encoding='utf-8') as f:
+                stored = f.read().strip()
+            if stored:
+                return stored
+        generated = secrets.token_hex(32)
+        with open(key_path, 'w', encoding='utf-8') as f:
+            f.write(generated)
+        return generated
+
     raise ValueError("No secure SECRET_KEY set. Please set the SECRET_KEY environment variable.")
-app.secret_key = secret_key
+
+_root = resource_root()
+app = Flask(
+    __name__,
+    template_folder=os.path.join(_root, 'templates'),
+    static_folder=os.path.join(_root, 'static'),
+)
+
+base_dir = resolve_data_dir()
+os.makedirs(base_dir, exist_ok=True)
+db_path = os.path.join(base_dir, 'snippets.db')
+
+app.secret_key = resolve_secret_key(base_dir)
 
 # Auth configuration
 auth_user = os.environ.get('WEBLINT_USERNAME')
@@ -48,10 +106,6 @@ def require_login():
         return
     if not current_user.is_authenticated:
         return redirect(url_for('login', next=request.url))
-
-base_dir = '/data' if os.path.exists('/data') else os.path.join(os.getcwd(), 'data')
-os.makedirs(base_dir, exist_ok=True)
-db_path = os.path.join(base_dir, 'snippets.db')
 
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -161,7 +215,7 @@ with app.app_context():
     except Exception as e:
         print(f"Error checking/migrating schema: {e}")
 
-    json_file = '/data/snippets.json'
+    json_file = os.path.join(base_dir, 'snippets.json')
     if os.path.exists(json_file) and Snippet.query.count() == 0:
         try:
             with open(json_file, 'r') as f:
@@ -307,6 +361,22 @@ def logout():
     logout_user()
     return redirect(url_for('login'))
 
-if __name__ == '__main__':
+def run_server(host=None, port=None, open_browser=False):
+    """Start the Flask development server (used by __main__ and the desktop binary)."""
+    host = host or os.environ.get('WEBLINT_HOST', '127.0.0.1' if is_desktop_mode() else '0.0.0.0')
+    port = int(port or os.environ.get('WEBLINT_PORT', '5000'))
     debug_mode = os.environ.get('FLASK_DEBUG', 'false').lower() == 'true'
-    app.run(host='0.0.0.0', port=5000, debug=debug_mode)
+
+    if open_browser or is_desktop_mode():
+        import threading
+        import webbrowser
+        url = f'http://127.0.0.1:{port}/'
+        print(f'Weblint is starting at {url}')
+        print(f'Data directory: {base_dir}')
+        print('Press Ctrl+C to stop.')
+        threading.Timer(1.25, lambda: webbrowser.open(url)).start()
+
+    app.run(host=host, port=port, debug=debug_mode, use_reloader=False)
+
+if __name__ == '__main__':
+    run_server()

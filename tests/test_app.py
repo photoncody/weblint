@@ -365,3 +365,41 @@ def test_multipart_badge_on_index(client, db):
     assert response.status_code == 200
     assert b'Multi Badge' in response.data
     assert b'2 parts' in response.data
+
+
+def test_desktop_secret_key_persists(tmp_path, monkeypatch):
+    """Desktop mode auto-generates and reuses a secret key under the data dir."""
+    from app import resolve_secret_key
+
+    monkeypatch.setenv('WEBLINT_DESKTOP', '1')
+    monkeypatch.delenv('SECRET_KEY', raising=False)
+
+    data_dir = tmp_path / 'data'
+    key1 = resolve_secret_key(str(data_dir))
+    key2 = resolve_secret_key(str(data_dir))
+
+    assert key1
+    assert key1 == key2
+    assert (data_dir / 'secret.key').read_text(encoding='utf-8').strip() == key1
+
+
+def test_resolve_secret_key_requires_env_outside_desktop(tmp_path, monkeypatch):
+    """Non-desktop mode still requires an explicit SECRET_KEY."""
+    from app import resolve_secret_key
+
+    monkeypatch.delenv('WEBLINT_DESKTOP', raising=False)
+    monkeypatch.delenv('SECRET_KEY', raising=False)
+    monkeypatch.setattr('app.is_frozen', lambda: False)
+
+    with pytest.raises(ValueError, match='SECRET_KEY'):
+        resolve_secret_key(str(tmp_path))
+
+
+def test_resource_root_includes_templates():
+    """Templates resolve from the source tree (and from the bundle when frozen)."""
+    from app import resource_root
+    import os
+
+    root = resource_root()
+    assert os.path.isdir(os.path.join(root, 'templates'))
+    assert os.path.isfile(os.path.join(root, 'templates', 'index.html'))

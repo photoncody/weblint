@@ -60,9 +60,42 @@ Use multiple parts when several templates share the same variables but need sepa
 
 ### Prerequisites
 
-- [Docker](https://www.docker.com/) and [Docker Compose](https://docs.docker.com/compose/) installed on your machine.
+- For Docker (recommended for shared / always-on hosting): [Docker](https://www.docker.com/) and [Docker Compose](https://docs.docker.com/compose/)
+- For a local single-user install: download a prebuilt desktop binary from [Releases](https://github.com/photoncody/weblint/releases), **or** use Python 3.9+ (see below)
 
-### Installation & Running (Recommended)
+### Desktop app (Windows / Linux / macOS)
+
+Prebuilt standalone binaries are published automatically by GitHub Actions whenever a version tag (`v*.*.*`) is pushed. Download the zip for your platform from the [Releases](https://github.com/photoncody/weblint/releases) page:
+
+| Platform | Artifact |
+| --- | --- |
+| Windows (x64) | `weblint-windows-x64.zip` |
+| Linux (x64) | `weblint-linux-x64.zip` |
+| macOS (Intel) | `weblint-macos-x64.zip` |
+| macOS (Apple Silicon) | `weblint-macos-arm64.zip` |
+
+1. Unzip the archive.
+2. Run the `weblint` binary (double-click or from a terminal).
+3. Your browser should open to `http://127.0.0.1:5000/`.
+4. Snippet data is stored in a `data/` folder next to the binary. Press Ctrl+C in the console to stop.
+
+CI also builds these binaries on every push to `main` and on pull requests (downloadable as workflow artifacts). To publish a new Release yourself:
+
+```bash
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+To build a desktop binary from source locally:
+
+```bash
+pip install -r requirements.txt pyinstaller
+pyinstaller weblint.spec
+# Result: dist/weblint  (or dist/weblint.exe on Windows)
+WEBLINT_DESKTOP=1 ./dist/weblint
+```
+
+### Installation & Running with Docker (Recommended for servers)
 
 1.  Clone this repository.
 2.  Navigate to the project directory.
@@ -78,7 +111,7 @@ Use multiple parts when several templates share the same variables but need sepa
 
 ### Manual Installation (Python)
 
-If you prefer to run it without Docker:
+If you prefer to run from source without Docker or a prebuilt binary:
 
 1.  Ensure you have Python 3.9+ installed.
 2.  Create a virtual environment (optional but recommended):
@@ -90,11 +123,15 @@ If you prefer to run it without Docker:
     ```bash
     pip install -r requirements.txt
     ```
-4.  Run the application:
+4.  Run the application (set a secret key, or use desktop mode to auto-generate one):
     ```bash
-    python3 app.py
+    # Option A: explicit secret (same as server/Docker)
+    SECRET_KEY=$(openssl rand -hex 32) python3 app.py
+
+    # Option B: desktop mode — auto-generates/persists a key under ./data/
+    WEBLINT_DESKTOP=1 python3 desktop.py
     ```
-5.  Access the application at `http://localhost:5000`.
+5.  Access the application at `http://localhost:5000` (desktop mode opens the browser for you).
 
 ## Configuration
 
@@ -153,6 +190,8 @@ If you want to access the database file directly on your host machine, you can m
     volumes:
       - ./data:/data
 ```
+
+When running the desktop binary, data (including an auto-generated `secret.key`) lives in a `data/` folder next to the executable. From source without Docker, data defaults to `./data/` in the working directory.
 
 ## JSON Migration
 
