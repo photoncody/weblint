@@ -15,6 +15,8 @@ import sys
 
 block_cipher = None
 root = os.path.abspath(SPECPATH)
+icon_ico = os.path.join(root, 'static', 'weblint.ico')
+icon_icns = os.path.join(root, 'static', 'weblint.icns')
 
 a = Analysis(
     ['desktop.py'],
@@ -70,6 +72,8 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    # Embedded .exe icon (Windows Explorer / taskbar when frozen).
+    icon=icon_ico if os.path.isfile(icon_ico) else None,
 )
 
 # Proper double-clickable bundle on macOS (hides the Terminal).
@@ -77,7 +81,7 @@ if sys.platform == 'darwin':
     app = BUNDLE(
         exe,
         name='Weblint.app',
-        icon=None,
+        icon=icon_icns if os.path.isfile(icon_icns) else None,
         bundle_identifier='com.photoncody.weblint',
         info_plist={
             'NSHighResolutionCapable': 'True',

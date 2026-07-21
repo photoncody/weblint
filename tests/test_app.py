@@ -436,3 +436,18 @@ def test_find_free_port_and_wait_helpers():
         assert _wait_for_server('127.0.0.1', port, timeout=2.0) is True
     finally:
         srv.close()
+
+
+def test_resolve_window_icon_prefers_platform_asset():
+    """Desktop icon resolver finds the Weblint brand icon next to the favicon."""
+    import os
+    from desktop import _resolve_window_icon
+    from app import resource_root
+
+    root = resource_root()
+    icon = _resolve_window_icon(root)
+    assert icon is not None
+    assert os.path.isfile(icon)
+    assert os.path.basename(icon).startswith('weblint.')
+    # Source tree should also still ship the web favicon used to generate these.
+    assert os.path.isfile(os.path.join(root, 'static', 'favicon.svg'))

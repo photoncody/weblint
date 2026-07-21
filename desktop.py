@@ -41,11 +41,85 @@ def _log_exception(data_dir, exc):
         return None
 
 
+def _resolve_window_icon(resource_root):
+    """
+    Prefer platform-native icon formats for the title bar / dock / taskbar.
+    Falls back across formats so source runs and frozen builds both work.
+    """
+    static_dir = os.path.join(resource_root, 'static')
+    if sys.platform == 'win32':
+        preferred = ['weblint.ico', 'weblint.png']
+    elif sys.platform == 'darwin':
+        preferred = ['weblint.icns', 'weblint.png', 'weblint.ico']
+    else:
+        preferred = ['weblint.png', 'weblint.ico']
+
+    for name in preferred:
+        path = os.path.join(static_dir, name)
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _prepare_native_identity(icon_path):
+    """
+    Make the native window identify as Weblint (not python/desktop.py) and
+    install the brand icon before the GUI toolkit creates the window.
+    """
+    # Linux/GTK: without this, many WMs show the generic Python icon because
+    # WM_CLASS becomes "desktop.py" / "python3" when running from source.
+    if sys.platform.startswith('linux'):
+        try:
+            import gi
+            gi.require_version('GLib', '2.0')
+            from gi.repository import GLib
+            GLib.set_prgname('weblint')
+        except Exception:
+            pass
+        try:
+            import gi
+            gi.require_version('Gdk', '3.0')
+            from gi.repository import Gdk
+            Gdk.set_program_class('Weblint')
+        except Exception:
+            pass
+        if icon_path:
+            try:
+                import gi
+                gi.require_version('Gtk', '3.0')
+                from gi.repository import Gtk
+                Gtk.Window.set_default_icon_from_file(icon_path)
+            except Exception as exc:
+                print(f'Warning: could not set GTK window icon: {exc}', flush=True)
+            # Register under the freedesktop icon theme as "weblint" so window
+            # managers that resolve icons by WM_CLASS find our brand mark.
+            try:
+                import shutil
+                icon_dir = os.path.join(os.path.dirname(icon_path), 'icons')
+                size_sources = {
+                    '16x16': os.path.join(icon_dir, 'weblint-16.png'),
+                    '32x32': os.path.join(icon_dir, 'weblint-32.png'),
+                    '48x48': os.path.join(icon_dir, 'weblint-48.png'),
+                    '256x256': os.path.join(icon_dir, 'weblint-256.png'),
+                }
+                for size_name, source in size_sources.items():
+                    if not os.path.isfile(source):
+                        source = icon_path
+                    dest_dir = os.path.join(
+                        os.path.expanduser('~'),
+                        '.local', 'share', 'icons', 'hicolor', size_name, 'apps',
+                    )
+                    os.makedirs(dest_dir, exist_ok=True)
+                    shutil.copy2(source, os.path.join(dest_dir, 'weblint.png'))
+            except Exception as exc:
+                print(f'Warning: could not install theme icon: {exc}', flush=True)
+
+
 def main():
     # Must be set before importing app so secret-key / data-dir logic applies.
     os.environ.setdefault('WEBLINT_DESKTOP', '1')
 
-    from app import app, base_dir, run_server
+    from app import app, base_dir, resource_root, run_server
 
     host = os.environ.get('WEBLINT_HOST', '127.0.0.1')
     port_env = os.environ.get('WEBLINT_PORT', '').strip()
@@ -83,8 +157,13 @@ def main():
         server.join()
         return
 
-    print(f'Weblint desktop UI: {url}')
-    print(f'Data directory: {base_dir}')
+    print(f'Weblint desktop UI: {url}', flush=True)
+    print(f'Data directory: {base_dir}', flush=True)
+
+    icon_path = _resolve_window_icon(resource_root())
+    if icon_path:
+        print(f'Window icon: {icon_path}', flush=True)
+    _prepare_native_identity(icon_path)
 
     webview.create_window(
         title='Weblint',
@@ -94,7 +173,8 @@ def main():
         min_size=(900, 640),
     )
     # Blocks until the user closes the window; daemon Flask thread exits with the process.
-    webview.start()
+    # icon= sets the native title-bar / dock icon (GTK/Qt; also used by WinForms when present).
+    webview.start(icon=icon_path)
 
 
 if __name__ == '__main__':
@@ -114,8 +194,10 @@ if __name__ == '__main__':
         # Best-effort native error dialog when available.
         try:
             import webview
+            from app import resource_root
+            icon_path = _resolve_window_icon(resource_root())
             webview.create_window('Weblint', html=f'<h3>Weblint error</h3><pre>{message}</pre>', width=640, height=360)
-            webview.start()
+            webview.start(icon=icon_path)
         except Exception:  # noqa: BLE001
             print(message, file=sys.stderr)
             raise SystemExit(1) from exc
