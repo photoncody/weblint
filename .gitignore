@@ -25,3 +25,9 @@ env/
 htmlcov/
 .pytest_cache/
 *.log
+
+# PyInstaller
+build/
+dist/
+*.manifest
+*.pyo

@@ -1,0 +1,116 @@
+name: Desktop Build
+
+# Builds standalone Weblint desktop apps (native window via pywebview) for
+# Windows, Linux, and macOS. Artifacts upload on every run; GitHub Release
+# assets attach on version tags.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: weblint-linux-x64
+            binary: weblint
+            out_name: weblint-linux-x64
+          - os: windows-latest
+            artifact: weblint-windows-x64
+            binary: weblint.exe
+            out_name: weblint-windows-x64.exe
+          # GitHub-hosted macOS runners are Apple Silicon (arm64).
+          # Intel Mac users can build from source with: pyinstaller weblint.spec
+          - os: macos-latest
+            artifact: weblint-macos-arm64
+            binary: weblint
+            out_name: weblint-macos-arm64
+            is_macos: true
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux WebKit (pywebview GTK backend)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-0 \
+            gir1.2-webkit2-4.1 \
+            gir1.2-gtk-3.0 \
+            python3-gi \
+            pkg-config
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-desktop.txt pyinstaller
+
+      - name: Build binary with PyInstaller
+        run: pyinstaller weblint.spec
+
+      - name: Stage artifact
+        shell: bash
+        run: |
+          mkdir -p release
+          if [ -d dist/Weblint.app ]; then
+            # macOS windowed build produces a .app bundle
+            cp -R dist/Weblint.app release/Weblint.app
+          else
+            cp "dist/${{ matrix.binary }}" "release/${{ matrix.out_name }}"
+          fi
+          cp packaging/README-desktop.txt release/README.txt
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: release/
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Package zip archives
+        run: |
+          set -euo pipefail
+          mkdir -p zips
+          for dir in artifacts/*; do
+            name="$(basename "$dir")"
+            (cd "$dir" && zip -r "../../zips/${name}.zip" .)
+          done
+          ls -la zips
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: zips/*.zip
+          generate_release_notes: true
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

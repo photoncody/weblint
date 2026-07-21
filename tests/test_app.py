@@ -365,3 +365,89 @@ def test_multipart_badge_on_index(client, db):
     assert response.status_code == 200
     assert b'Multi Badge' in response.data
     assert b'2 parts' in response.data
+
+
+def test_desktop_secret_key_persists(tmp_path, monkeypatch):
+    """Desktop mode auto-generates and reuses a secret key under the data dir."""
+    from app import resolve_secret_key
+
+    monkeypatch.setenv('WEBLINT_DESKTOP', '1')
+    monkeypatch.delenv('SECRET_KEY', raising=False)
+
+    data_dir = tmp_path / 'data'
+    key1 = resolve_secret_key(str(data_dir))
+    key2 = resolve_secret_key(str(data_dir))
+
+    assert key1
+    assert key1 == key2
+    assert (data_dir / 'secret.key').read_text(encoding='utf-8').strip() == key1
+
+
+def test_resolve_secret_key_requires_env_outside_desktop(tmp_path, monkeypatch):
+    """Non-desktop mode still requires an explicit SECRET_KEY."""
+    from app import resolve_secret_key
+
+    monkeypatch.delenv('WEBLINT_DESKTOP', raising=False)
+    monkeypatch.delenv('SECRET_KEY', raising=False)
+    monkeypatch.setattr('app.is_frozen', lambda: False)
+
+    with pytest.raises(ValueError, match='SECRET_KEY'):
+        resolve_secret_key(str(tmp_path))
+
+
+def test_resource_root_includes_templates():
+    """Templates resolve from the source tree (and from the bundle when frozen)."""
+    from app import resource_root
+    import os
+
+    root = resource_root()
+    assert os.path.isdir(os.path.join(root, 'templates'))
+    assert os.path.isfile(os.path.join(root, 'templates', 'index.html'))
+
+
+def test_find_free_port_and_wait_helpers():
+    """Desktop helpers can bind a free port and detect a listening server."""
+    import socket
+    import threading
+    from desktop import _find_free_port, _wait_for_server
+
+    port = _find_free_port()
+    assert isinstance(port, int)
+    assert 0 < port < 65536
+
+    # Nothing listening yet
+    assert _wait_for_server('127.0.0.1', port, timeout=0.3) is False
+
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(('127.0.0.1', port))
+    srv.listen(1)
+
+    def _accept():
+        try:
+            conn, _ = srv.accept()
+            conn.close()
+        except OSError:
+            pass
+
+    t = threading.Thread(target=_accept, daemon=True)
+    t.start()
+    try:
+        assert _wait_for_server('127.0.0.1', port, timeout=2.0) is True
+    finally:
+        srv.close()
+
+
+def test_resolve_window_icon_prefers_platform_asset():
+    """Desktop icon resolver finds the Weblint brand icon next to the favicon."""
+    import os
+    from desktop import _resolve_window_icon
+    from app import resource_root
+
+    root = resource_root()
+    icon = _resolve_window_icon(root)
+    assert icon is not None
+    assert os.path.isfile(icon)
+    assert os.path.basename(icon).startswith('weblint.')
+    # Source tree should also still ship the web favicon used to generate these.
+    assert os.path.isfile(os.path.join(root, 'static', 'favicon.svg'))
