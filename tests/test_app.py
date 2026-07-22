@@ -612,6 +612,41 @@ def test_resolve_window_icon_prefers_platform_asset():
     assert os.path.isfile(os.path.join(root, 'static', 'favicon.svg'))
 
 
+def test_desktop_create_window_enables_text_select():
+    """
+    pywebview defaults text_select=False, which blocks selecting and copying text
+    in the native desktop window. Both the main UI and error dialog must opt in.
+    """
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse(Path('desktop.py').read_text(encoding='utf-8'))
+    create_window_calls = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = None
+        if isinstance(func, ast.Attribute):
+            name = func.attr
+        elif isinstance(func, ast.Name):
+            name = func.id
+        if name != 'create_window':
+            continue
+        kwargs = {
+            kw.arg: kw.value
+            for kw in node.keywords
+            if kw.arg is not None
+        }
+        create_window_calls.append(kwargs)
+
+    assert create_window_calls, 'expected webview.create_window calls in desktop.py'
+    for kwargs in create_window_calls:
+        assert 'text_select' in kwargs, 'create_window must pass text_select'
+        value = kwargs['text_select']
+        assert isinstance(value, ast.Constant) and value.value is True
+
+
 def test_is_safe_url_rejects_open_redirects():
     """Relative paths are allowed; protocol-relative and backslash tricks are not."""
     from app import is_safe_url
