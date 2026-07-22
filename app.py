@@ -3,13 +3,24 @@ import sys
 import uuid
 import json
 import hmac
+import time
 import secrets
-from flask import Flask, render_template, request, redirect, url_for, flash, session
-
-def is_safe_url(target):
-    return target and target.startswith('/') and not target.startswith('//') and not target.startswith('\\\\')
+from urllib.parse import urlparse
+from flask import Flask, render_template, request, redirect, url_for, flash, session, abort
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+
+def is_safe_url(target):
+    """Allow only relative same-origin paths (no scheme/host, no backslash tricks)."""
+    if not target or not isinstance(target, str):
+        return False
+    target = target.strip()
+    if not target.startswith('/') or target.startswith('//'):
+        return False
+    if '\\' in target or '\n' in target or '\r' in target or '\0' in target:
+        return False
+    parsed = urlparse(target)
+    return not parsed.scheme and not parsed.netloc
 
 def is_frozen():
     """True when running as a PyInstaller (or similar) bundled executable."""
@@ -50,16 +61,51 @@ def resolve_secret_key(data_dir):
         os.makedirs(data_dir, exist_ok=True)
         key_path = os.path.join(data_dir, 'secret.key')
         if os.path.isfile(key_path):
+            try:
+                os.chmod(key_path, 0o600)
+            except OSError:
+                pass
             with open(key_path, 'r', encoding='utf-8') as f:
                 stored = f.read().strip()
             if stored:
                 return stored
         generated = secrets.token_hex(32)
-        with open(key_path, 'w', encoding='utf-8') as f:
+        fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
             f.write(generated)
         return generated
 
     raise ValueError("No secure SECRET_KEY set. Please set the SECRET_KEY environment variable.")
+
+def migrate_schema(db_path):
+    """Add missing columns to the snippet table (idempotent)."""
+    import sqlite3
+    try:
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        c.execute("PRAGMA table_info(snippet)")
+        columns = [info[1] for info in c.fetchall()]
+
+        if 'parsing_mode' not in columns:
+            print("Adding 'parsing_mode' column to snippet table...")
+            c.execute("ALTER TABLE snippet ADD COLUMN parsing_mode TEXT DEFAULT 'weblint'")
+
+        if 'notes' not in columns:
+            print("Adding 'notes' column to snippet table...")
+            c.execute("ALTER TABLE snippet ADD COLUMN notes TEXT")
+
+        if 'parts' not in columns:
+            print("Adding 'parts' column to snippet table...")
+            c.execute("ALTER TABLE snippet ADD COLUMN parts TEXT")
+
+        if 'archived' not in columns:
+            print("Adding 'archived' column to snippet table...")
+            c.execute("ALTER TABLE snippet ADD COLUMN archived INTEGER DEFAULT 0 NOT NULL")
+
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Error checking/migrating schema: {e}")
 
 _root = resource_root()
 app = Flask(
@@ -73,6 +119,13 @@ os.makedirs(base_dir, exist_ok=True)
 db_path = os.path.join(base_dir, 'snippets.db')
 
 app.secret_key = resolve_secret_key(base_dir)
+
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+# Only force Secure cookies when explicitly requested (keeps HTTP LAN/desktop working)
+if os.environ.get('WEBLINT_COOKIE_SECURE', '').lower() in ('1', 'true', 'yes'):
+    app.config['SESSION_COOKIE_SECURE'] = True
+app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  # 5 MB
 
 # Auth configuration
 auth_user = os.environ.get('WEBLINT_USERNAME')
@@ -92,9 +145,50 @@ def load_user(user_id):
         return User()
     return None
 
+def generate_csrf_token():
+    token = session.get('_csrf_token')
+    if not token:
+        token = secrets.token_hex(32)
+        session['_csrf_token'] = token
+    return token
+
+def validate_csrf_token():
+    token = request.form.get('csrf_token', '')
+    expected = session.get('_csrf_token', '')
+    if not expected or not token or not hmac.compare_digest(str(token), str(expected)):
+        abort(400)
+
+def _secure_str_eq(a, b):
+    if a is None or b is None:
+        return False
+    try:
+        return hmac.compare_digest(str(a).encode('utf-8'), str(b).encode('utf-8'))
+    except Exception:
+        return False
+
+# Simple in-memory login rate limiting (per remote address)
+_login_attempts = {}
+_LOGIN_MAX_FAILURES = 10
+_LOGIN_WINDOW_SECONDS = 300
+
+def _login_is_rate_limited(addr):
+    now = time.time()
+    failures = [t for t in _login_attempts.get(addr, []) if now - t < _LOGIN_WINDOW_SECONDS]
+    _login_attempts[addr] = failures
+    return len(failures) >= _LOGIN_MAX_FAILURES
+
+def _login_record_failure(addr):
+    now = time.time()
+    failures = [t for t in _login_attempts.get(addr, []) if now - t < _LOGIN_WINDOW_SECONDS]
+    failures.append(now)
+    _login_attempts[addr] = failures
+
+def _login_reset_failures(addr):
+    _login_attempts.pop(addr, None)
+
 @app.context_processor
 def inject_auth_status():
-    return dict(auth_enabled=auth_enabled)
+    return dict(auth_enabled=auth_enabled, csrf_token=generate_csrf_token())
 
 @app.before_request
 def require_login():
@@ -105,10 +199,23 @@ def require_login():
     if request.endpoint == 'login': # Allow login page
         return
     if not current_user.is_authenticated:
-        return redirect(url_for('login', next=request.url))
+        next_target = request.full_path
+        if next_target.endswith('?') and not request.query_string:
+            next_target = request.path
+        return redirect(url_for('login', next=next_target))
+
+@app.after_request
+def set_security_headers(response):
+    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    response.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
+    response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+    return response
 
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'connect_args': {'check_same_thread': False, 'timeout': 30},
+}
 
 db = SQLAlchemy(app)
 
@@ -190,35 +297,7 @@ def apply_parts_to_snippet(snippet, parts):
 
 with app.app_context():
     db.create_all()
-
-    # Automatic Database Migration for Missing Columns
-    import sqlite3
-    try:
-        conn = sqlite3.connect(db_path)
-        c = conn.cursor()
-        c.execute("PRAGMA table_info(snippet)")
-        columns = [info[1] for info in c.fetchall()]
-
-        if 'parsing_mode' not in columns:
-            print("Adding 'parsing_mode' column to snippet table...")
-            c.execute("ALTER TABLE snippet ADD COLUMN parsing_mode TEXT DEFAULT 'weblint'")
-
-        if 'notes' not in columns:
-            print("Adding 'notes' column to snippet table...")
-            c.execute("ALTER TABLE snippet ADD COLUMN notes TEXT")
-
-        if 'parts' not in columns:
-            print("Adding 'parts' column to snippet table...")
-            c.execute("ALTER TABLE snippet ADD COLUMN parts TEXT")
-
-        if 'archived' not in columns:
-            print("Adding 'archived' column to snippet table...")
-            c.execute("ALTER TABLE snippet ADD COLUMN archived INTEGER DEFAULT 0 NOT NULL")
-
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        print(f"Error checking/migrating schema: {e}")
+    migrate_schema(db_path)
 
     json_file = os.path.join(base_dir, 'snippets.json')
     if os.path.exists(json_file) and Snippet.query.count() == 0:
@@ -249,8 +328,10 @@ def index():
     if query:
         snippets = Snippet.query.filter(
             Snippet.archived == False,
-            (Snippet.title.ilike(f'%{query}%')) | 
-            (Snippet.content.ilike(f'%{query}%'))
+            (Snippet.title.ilike(f'%{query}%')) |
+            (Snippet.content.ilike(f'%{query}%')) |
+            (Snippet.notes.ilike(f'%{query}%')) |
+            (Snippet.parts.ilike(f'%{query}%'))
         ).order_by(Snippet.title).all()
     else:
         snippets = Snippet.query.filter_by(archived=False).order_by(Snippet.title).all()
@@ -268,17 +349,40 @@ def index():
 @app.route('/new', methods=['GET', 'POST'])
 def new_snippet():
     if request.method == 'POST':
+        validate_csrf_token()
+        title = request.form.get('title', '').strip()
+        notes = request.form.get('notes')
+        parsing_mode = request.form.get('parsing_mode', 'weblint')
         parts = parts_from_form(request.form)
+
+        if not title:
+            flash('Title is required.')
+            return render_template(
+                'editor.html',
+                snippet=None,
+                form_parts=parts,
+                form_title=title,
+                form_notes=notes,
+                form_parsing_mode=parsing_mode,
+            ), 400
+
         if not any(p['content'].strip() for p in parts):
             flash('At least one part must have content.')
-            return render_template('editor.html', snippet=None, form_parts=parts), 400
+            return render_template(
+                'editor.html',
+                snippet=None,
+                form_parts=parts,
+                form_title=title,
+                form_notes=notes,
+                form_parsing_mode=parsing_mode,
+            ), 400
 
         new_snip = Snippet(
-            title=request.form['title'],
+            title=title,
             content=parts[0]['content'],
             type=parts[0]['type'],
-            parsing_mode=request.form.get('parsing_mode', 'weblint'),
-            notes=request.form.get('notes')
+            parsing_mode=parsing_mode,
+            notes=notes
         )
         apply_parts_to_snippet(new_snip, parts)
         db.session.add(new_snip)
@@ -290,18 +394,40 @@ def new_snippet():
 def edit_snippet(s_id):
     snippet = db.session.get(Snippet, s_id)
     if not snippet:
-        from flask import abort
         abort(404)
     
     if request.method == 'POST':
+        validate_csrf_token()
+        title = request.form.get('title', '').strip()
+        notes = request.form.get('notes')
+        parsing_mode = request.form.get('parsing_mode', 'weblint')
         parts = parts_from_form(request.form)
+
+        if not title:
+            flash('Title is required.')
+            return render_template(
+                'editor.html',
+                snippet=snippet,
+                form_parts=parts,
+                form_title=title,
+                form_notes=notes,
+                form_parsing_mode=parsing_mode,
+            ), 400
+
         if not any(p['content'].strip() for p in parts):
             flash('At least one part must have content.')
-            return render_template('editor.html', snippet=snippet, form_parts=parts), 400
+            return render_template(
+                'editor.html',
+                snippet=snippet,
+                form_parts=parts,
+                form_title=title,
+                form_notes=notes,
+                form_parsing_mode=parsing_mode,
+            ), 400
 
-        snippet.title = request.form['title']
-        snippet.parsing_mode = request.form.get('parsing_mode', 'weblint')
-        snippet.notes = request.form.get('notes')
+        snippet.title = title
+        snippet.parsing_mode = parsing_mode
+        snippet.notes = notes
         apply_parts_to_snippet(snippet, parts)
         db.session.commit()
         return redirect(url_for('view_snippet', s_id=s_id))
@@ -312,7 +438,6 @@ def edit_snippet(s_id):
 def view_snippet(s_id):
     snippet = db.session.get(Snippet, s_id)
     if not snippet:
-        from flask import abort
         abort(404)
 
     if not snippet.archived:
@@ -325,11 +450,11 @@ def view_snippet(s_id):
     parts = get_snippet_parts(snippet)
     return render_template('view.html', snippet=snippet, parts=parts)
 
-@app.route('/archive/<s_id>')
+@app.route('/archive/<s_id>', methods=['POST'])
 def archive_snippet(s_id):
+    validate_csrf_token()
     snippet = db.session.get(Snippet, s_id)
     if not snippet:
-        from flask import abort
         abort(404)
 
     recent_snippets = session.get('recent_snippets', [])
@@ -341,27 +466,27 @@ def archive_snippet(s_id):
     db.session.commit()
     return redirect(url_for('index'))
 
-@app.route('/unarchive/<s_id>')
+@app.route('/unarchive/<s_id>', methods=['POST'])
 def unarchive_snippet(s_id):
+    validate_csrf_token()
     snippet = db.session.get(Snippet, s_id)
     if not snippet:
-        from flask import abort
         abort(404)
 
     snippet.archived = False
     db.session.commit()
-    return redirect(url_for('archived_snippets'))
+    return redirect(url_for('index'))
 
 @app.route('/archived')
 def archived_snippets():
     snippets = Snippet.query.filter_by(archived=True).order_by(Snippet.title).all()
     return render_template('archived.html', snippets=snippets)
 
-@app.route('/delete/<s_id>')
+@app.route('/delete/<s_id>', methods=['POST'])
 def delete_snippet(s_id):
+    validate_csrf_token()
     snippet = db.session.get(Snippet, s_id)
     if not snippet:
-        from flask import abort
         abort(404)
 
     was_archived = snippet.archived
@@ -385,22 +510,31 @@ def login():
         return redirect(url_for('index'))
 
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        if hmac.compare_digest(username, auth_user) and hmac.compare_digest(password, auth_pass):
+        validate_csrf_token()
+        addr = request.remote_addr or 'unknown'
+        if _login_is_rate_limited(addr):
+            flash('Too many failed login attempts. Please try again in a few minutes.')
+            return render_template('login.html'), 429
+
+        username = request.form.get('username', '')
+        password = request.form.get('password', '')
+        if _secure_str_eq(username, auth_user) and _secure_str_eq(password, auth_pass):
+            _login_reset_failures(addr)
             login_user(User())
             next_page = request.args.get('next')
             if not is_safe_url(next_page):
                 next_page = url_for('index')
             return redirect(next_page)
         else:
+            _login_record_failure(addr)
             flash('Invalid username or password')
 
     return render_template('login.html')
 
-@app.route('/logout')
+@app.route('/logout', methods=['POST'])
 @login_required
 def logout():
+    validate_csrf_token()
     logout_user()
     return redirect(url_for('login'))
 

@@ -1,4 +1,5 @@
 import os
+import secrets
 import pytest
 import tempfile
 
@@ -33,3 +34,21 @@ def client(app):
 def db(app):
     with app.app_context():
         yield _db
+
+def ensure_csrf(client, data=None):
+    """Merge a valid session CSRF token into form data for POST requests."""
+    payload = dict(data or {})
+    with client.session_transaction() as sess:
+        token = sess.get('_csrf_token')
+        if not token:
+            token = secrets.token_hex(32)
+            sess['_csrf_token'] = token
+    payload['csrf_token'] = token
+    return payload
+
+def login(client, username='admin', password='adminpass'):
+    """Authenticate the test client with CSRF."""
+    return client.post('/login', data=ensure_csrf(client, {
+        'username': username,
+        'password': password,
+    }))
