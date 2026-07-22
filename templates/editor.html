@@ -13,11 +13,12 @@
   {% endif %}
 {% endwith %}
 <form method="post" id="snippet-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="row">
         <div class="col-md-8">
             <div class="mb-3">
                 <label class="form-label">Title</label>
-                <input type="text" name="title" class="form-control" required value="{{ snippet.title if snippet else '' }}">
+                <input type="text" name="title" class="form-control" required value="{{ form_title if form_title is defined else (snippet.title if snippet else '') }}">
             </div>
 
             <div class="mb-3">
@@ -30,13 +31,14 @@
 
             <div class="mb-3">
                 <label class="form-label">Notes</label>
-                <textarea id="editor-notes" name="notes" class="form-control" rows="4" placeholder="Optional notes... (These do not appear in the copied output)">{{ snippet.notes if snippet and snippet.notes else '' }}</textarea>
+                <textarea id="editor-notes" name="notes" class="form-control" rows="4" placeholder="Optional notes... (These do not appear in the copied output)">{% if form_notes is defined %}{{ form_notes }}{% elif snippet and snippet.notes %}{{ snippet.notes }}{% endif %}</textarea>
             </div>
             <div class="mb-3">
                 <label class="form-label">Parsing Mode</label>
                 <select id="parsing-mode" name="parsing_mode" class="form-select">
-                    <option value="weblint" {% if not snippet or snippet.parsing_mode == 'weblint' %}selected{% endif %}>Standard (WebLint)</option>
-                    <option value="batch" {% if snippet and snippet.parsing_mode == 'batch' %}selected{% endif %}>Batch Script (%VAR%)</option>
+                    {% set selected_mode = form_parsing_mode if form_parsing_mode is defined else (snippet.parsing_mode if snippet else 'weblint') %}
+                    <option value="weblint" {% if selected_mode == 'weblint' %}selected{% endif %}>Standard (WebLint)</option>
+                    <option value="batch" {% if selected_mode == 'batch' %}selected{% endif %}>Batch Script (%VAR%)</option>
                 </select>
             </div>
             <button type="submit" class="btn btn-primary">Save Snippet</button>
@@ -133,7 +135,7 @@
                 </div>
                 <div class="mb-2">
                     <label class="form-label small">Content</label>
-                    <textarea name="part_content" class="form-control part-content-input" rows="12" required placeholder="Type content here. Try [[Input=Name|Default]] or [[Area=Notes]]...">${escapeHtml(content)}</textarea>
+                    <textarea name="part_content" class="form-control part-content-input" rows="12" placeholder="Type content here. Try [[Input=Name|Default]] or [[Area=Notes]]...">${escapeHtml(content)}</textarea>
                 </div>
                 <div>
                     <label class="form-label small">Type</label>
@@ -185,8 +187,8 @@
         };
 
         if (mode === 'weblint') {
-            const inputRegex = /\[\[Input=(.*?)(?:\|(.*?))?\]\]/g;
-            const areaRegex = /\[\[Area=(.*?)(?:\|(.*?))?\]\]/g;
+            const inputRegex = /\[\[Input=([^|\]]+)(?:\|([^\]]+))?\]\]/g;
+            const areaRegex = /\[\[Area=([^|\]]+)(?:\|([^\]]+))?\]\]/g;
             const choiceRegex = /\[\[Choice=\?(.*?)\|(.*?)\]\]/g;
             const dateRegex = /\[\[DateTime=(.*?)\]\]/g;
 
@@ -226,6 +228,15 @@
         addPart({ name: `Part ${partsContainer.querySelectorAll('.part-card').length + 1}`, content: '', type: 'plain' });
     });
     document.getElementById('parsing-mode').addEventListener('change', detectVariables);
+
+    document.getElementById('snippet-form').addEventListener('submit', (e) => {
+        const hasContent = Array.from(document.querySelectorAll('.part-content-input'))
+            .some(el => el.value.trim().length > 0);
+        if (!hasContent) {
+            e.preventDefault();
+            alert('At least one part must have content.');
+        }
+    });
 
     // Seed parts from server (edit / re-render) or a blank single part
     (initialParts.length ? initialParts : [{ name: '', content: '', type: 'plain' }]).forEach(p => addPart(p));

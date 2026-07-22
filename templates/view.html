@@ -34,11 +34,20 @@
     <div>
         <a href="{{ url_for('edit_snippet', s_id=snippet.id) }}" class="btn btn-warning btn-sm">Edit</a>
         {% if snippet.archived %}
-        <a href="{{ url_for('unarchive_snippet', s_id=snippet.id) }}" class="btn btn-unarchive btn-sm" onclick="return confirm('Unarchive this snippet?')">Unarchive</a>
+        <form method="post" action="{{ url_for('unarchive_snippet', s_id=snippet.id) }}" class="d-inline" onsubmit="return confirm('Unarchive this snippet?')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="btn btn-unarchive btn-sm">Unarchive</button>
+        </form>
         {% else %}
-        <a href="{{ url_for('archive_snippet', s_id=snippet.id) }}" class="btn btn-archive btn-sm" onclick="return confirm('Archive this snippet?')">Archive</a>
+        <form method="post" action="{{ url_for('archive_snippet', s_id=snippet.id) }}" class="d-inline" onsubmit="return confirm('Archive this snippet?')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="btn btn-archive btn-sm">Archive</button>
+        </form>
         {% endif %}
-        <a href="{{ url_for('delete_snippet', s_id=snippet.id) }}" class="btn btn-danger btn-sm" onclick="return confirm('Delete this snippet?')">Delete</a>
+        <form method="post" action="{{ url_for('delete_snippet', s_id=snippet.id) }}" class="d-inline" onsubmit="return confirm('Delete this snippet?')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+        </form>
     </div>
 </div>
 
@@ -197,9 +206,9 @@
 
         if (previewDiv) {
             if (part.type === 'markdown') {
-                previewDiv.innerHTML = marked.parse(currentText);
+                previewDiv.innerHTML = DOMPurify.sanitize(marked.parse(currentText));
             } else if (part.type === 'html') {
-                previewDiv.innerHTML = currentText;
+                previewDiv.innerHTML = DOMPurify.sanitize(currentText);
             } else {
                 previewDiv.innerText = currentText;
             }
@@ -225,7 +234,10 @@
 
             const div = document.createElement('div');
             div.className = 'mb-2';
-            div.innerHTML = `<label class="form-label small fw-bold">${label}</label>`;
+            const labelEl = document.createElement('label');
+            labelEl.className = 'form-label small fw-bold';
+            labelEl.textContent = label;
+            div.appendChild(labelEl);
 
             let field;
             if (type === 'input') {
@@ -312,9 +324,9 @@
             } else {
                 let htmlContent = '';
                 if (partType === 'markdown') {
-                    htmlContent = marked.parse(rawText);
+                    htmlContent = DOMPurify.sanitize(marked.parse(rawText));
                 } else if (partType === 'html') {
-                    htmlContent = rawText;
+                    htmlContent = DOMPurify.sanitize(rawText);
                 }
 
                 const blobHtml = new Blob([htmlContent], { type: "text/html" });
