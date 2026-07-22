@@ -28,6 +28,17 @@ def migrate():
     else:
         print("'parsing_mode' column already exists.")
 
+    if 'notes' not in columns:
+        print("Adding 'notes' column to snippet table...")
+        try:
+            c.execute("ALTER TABLE snippet ADD COLUMN notes TEXT")
+            conn.commit()
+            print("Column added successfully.")
+        except Exception as e:
+            print(f"Error adding column: {e}")
+    else:
+        print("'notes' column already exists.")
+
     if 'parts' not in columns:
         print("Adding 'parts' column to snippet table...")
         try:

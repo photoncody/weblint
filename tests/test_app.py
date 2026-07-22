@@ -1,6 +1,8 @@
 import json
+import os
 import pytest
 from app import Snippet, get_snippet_parts
+from conftest import ensure_csrf, login
 
 def test_index_unauthenticated(client):
     """Test that index redirects to login when not authenticated."""
@@ -16,39 +18,39 @@ def test_login_get(client):
 
 def test_login_post_success(client):
     """Test logging in with valid credentials."""
-    response = client.post('/login', data={
+    response = client.post('/login', data=ensure_csrf(client, {
         'username': 'admin',
         'password': 'adminpass'
-    }, follow_redirects=True)
+    }), follow_redirects=True)
     assert response.status_code == 200
     # The index page should render now
     assert b'WebLint' in response.data or b'No snippets found' in response.data
 
 def test_login_post_failure(client):
     """Test logging in with invalid credentials."""
-    response = client.post('/login', data={
+    response = client.post('/login', data=ensure_csrf(client, {
         'username': 'wrong',
         'password': 'password'
-    }, follow_redirects=True)
+    }), follow_redirects=True)
     assert response.status_code == 200
     assert b'Invalid username or password' in response.data
 
 def test_index_authenticated(client):
     """Test accessing index while authenticated."""
-    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+    login(client)
     response = client.get('/')
     assert response.status_code == 200
 
 def test_create_snippet(client, db):
     """Test creating a new snippet."""
-    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
-    response = client.post('/new', data={
+    login(client)
+    response = client.post('/new', data=ensure_csrf(client, {
         'title': 'Test Snippet',
         'content': 'This is a test snippet.',
         'type': 'plain',
         'parsing_mode': 'weblint',
         'notes': 'Test notes'
-    }, follow_redirects=True)
+    }), follow_redirects=True)
 
     assert response.status_code == 200
     assert b'Test Snippet' in response.data
@@ -62,7 +64,7 @@ def test_create_snippet(client, db):
 
 def test_edit_snippet(client, db):
     """Test editing an existing snippet."""
-    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+    login(client)
 
     # Create snippet first
     snippet = Snippet(
@@ -77,13 +79,13 @@ def test_edit_snippet(client, db):
     snippet_id = snippet.id
 
     # Edit snippet
-    response = client.post(f'/edit/{snippet_id}', data={
+    response = client.post(f'/edit/{snippet_id}', data=ensure_csrf(client, {
         'title': 'Updated Title',
         'content': 'Updated content',
         'type': 'markdown',
         'parsing_mode': 'batch',
         'notes': 'Updated notes'
-    }, follow_redirects=True)
+    }), follow_redirects=True)
 
     assert response.status_code == 200
     assert b'Updated Title' in response.data
@@ -97,21 +99,21 @@ def test_edit_snippet(client, db):
 
 def test_edit_snippet_not_found(client):
     """Test editing a non-existent snippet returns 404."""
-    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+    login(client)
     # Test GET
     response = client.get('/edit/non-existent-id')
     assert response.status_code == 404
     # Test POST
-    response = client.post('/edit/non-existent-id', data={
+    response = client.post('/edit/non-existent-id', data=ensure_csrf(client, {
         'title': 'New Title',
         'content': 'New content',
         'type': 'plain'
-    })
+    }))
     assert response.status_code == 404
 
 def test_delete_snippet(client, db):
     """Test deleting a snippet."""
-    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+    login(client)
 
     # Create snippet first
     snippet = Snippet(
@@ -126,7 +128,7 @@ def test_delete_snippet(client, db):
     snippet_id = snippet.id
 
     # Delete snippet
-    response = client.get(f'/delete/{snippet_id}', follow_redirects=True)
+    response = client.post(f'/delete/{snippet_id}', data=ensure_csrf(client), follow_redirects=True)
 
     assert response.status_code == 200
 
@@ -136,13 +138,13 @@ def test_delete_snippet(client, db):
 
 def test_delete_snippet_not_found(client):
     """Test deleting a non-existent snippet returns 404."""
-    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
-    response = client.get('/delete/non-existent-id')
+    login(client)
+    response = client.post('/delete/non-existent-id', data=ensure_csrf(client))
     assert response.status_code == 404
 
 def test_view_snippet(client, db):
     """Test viewing a snippet."""
-    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+    login(client)
 
     # Create snippet first
     snippet = Snippet(
@@ -162,13 +164,13 @@ def test_view_snippet(client, db):
 
 def test_view_snippet_not_found(client):
     """Test viewing a non-existent snippet returns 404."""
-    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+    login(client)
     response = client.get('/view/non-existent-id')
     assert response.status_code == 404
 
 def test_search_snippets(client, db):
     """Test searching snippets."""
-    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+    login(client)
 
     # Create snippets
     db.session.add(Snippet(title='Apple Snippet', content='Apple content', type='plain', parsing_mode='weblint'))
@@ -189,9 +191,9 @@ def test_search_snippets(client, db):
 
 def test_logout(client):
     """Test logout."""
-    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+    login(client)
 
-    response = client.get('/logout', follow_redirects=True)
+    response = client.post('/logout', data=ensure_csrf(client), follow_redirects=True)
     assert response.status_code == 200
     assert b'Login' in response.data
 
@@ -201,7 +203,7 @@ def test_logout(client):
 
 def test_recent_snippets(client, db):
     """Test recent snippets logic."""
-    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+    login(client)
 
     # Create snippets
     s1 = Snippet(title='Snippet 1', content='Content 1', type='plain', parsing_mode='weblint')
@@ -231,7 +233,7 @@ def test_recent_snippets(client, db):
     assert b'Recently Selected' in response.data
 
     # Delete snippet 1
-    client.get(f'/delete/{s1.id}')
+    client.post(f'/delete/{s1.id}', data=ensure_csrf(client))
 
     with client.session_transaction() as sess:
         assert s1.id not in sess['recent_snippets']
@@ -239,7 +241,7 @@ def test_recent_snippets(client, db):
 
 def test_archive_snippet(client, db):
     """Test archiving a snippet moves it off the index and onto /archived."""
-    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+    login(client)
 
     snippet = Snippet(
         title='To be archived',
@@ -254,7 +256,7 @@ def test_archive_snippet(client, db):
     response = client.get('/')
     assert b'To be archived' in response.data
 
-    response = client.get(f'/archive/{snippet_id}', follow_redirects=True)
+    response = client.post(f'/archive/{snippet_id}', data=ensure_csrf(client), follow_redirects=True)
     assert response.status_code == 200
 
     archived = db.session.get(Snippet, snippet_id)
@@ -271,7 +273,7 @@ def test_archive_snippet(client, db):
 
 def test_unarchive_snippet(client, db):
     """Test unarchiving restores a snippet to the index."""
-    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+    login(client)
 
     snippet = Snippet(
         title='Restore Me',
@@ -284,7 +286,7 @@ def test_unarchive_snippet(client, db):
     db.session.commit()
     snippet_id = snippet.id
 
-    response = client.get(f'/unarchive/{snippet_id}', follow_redirects=True)
+    response = client.post(f'/unarchive/{snippet_id}', data=ensure_csrf(client), follow_redirects=True)
     assert response.status_code == 200
 
     restored = db.session.get(Snippet, snippet_id)
@@ -299,7 +301,7 @@ def test_unarchive_snippet(client, db):
 
 def test_search_excludes_archived(client, db):
     """Test search on the index excludes archived snippets."""
-    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+    login(client)
 
     db.session.add(Snippet(title='Active Apple', content='Apple content', type='plain', parsing_mode='weblint'))
     db.session.add(Snippet(
@@ -318,7 +320,7 @@ def test_search_excludes_archived(client, db):
 
 def test_archive_removes_from_recent(client, db):
     """Test archiving removes a snippet from the recent list."""
-    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+    login(client)
 
     snippet = Snippet(title='Recent Archive', content='Content', type='plain', parsing_mode='weblint')
     db.session.add(snippet)
@@ -328,7 +330,7 @@ def test_archive_removes_from_recent(client, db):
     with client.session_transaction() as sess:
         assert snippet.id in sess['recent_snippets']
 
-    client.get(f'/archive/{snippet.id}')
+    client.post(f'/archive/{snippet.id}', data=ensure_csrf(client))
 
     with client.session_transaction() as sess:
         assert snippet.id not in sess['recent_snippets']
@@ -339,7 +341,7 @@ def test_archive_removes_from_recent(client, db):
 
 def test_view_archived_snippet(client, db):
     """Test viewing an archived snippet still works and does not add it to recent."""
-    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+    login(client)
 
     snippet = Snippet(
         title='Archived View',
@@ -361,19 +363,19 @@ def test_view_archived_snippet(client, db):
 
 def test_archive_snippet_not_found(client):
     """Test archiving a non-existent snippet returns 404."""
-    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
-    response = client.get('/archive/non-existent-id')
+    login(client)
+    response = client.post('/archive/non-existent-id', data=ensure_csrf(client))
     assert response.status_code == 404
 
 def test_unarchive_snippet_not_found(client):
     """Test unarchiving a non-existent snippet returns 404."""
-    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
-    response = client.get('/unarchive/non-existent-id')
+    login(client)
+    response = client.post('/unarchive/non-existent-id', data=ensure_csrf(client))
     assert response.status_code == 404
 
 def test_delete_archived_snippet_redirects_to_archived(client, db):
     """Deleting an archived snippet redirects back to the archived list."""
-    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+    login(client)
 
     snippet = Snippet(
         title='Delete Archived',
@@ -386,7 +388,7 @@ def test_delete_archived_snippet_redirects_to_archived(client, db):
     db.session.commit()
     snippet_id = snippet.id
 
-    response = client.get(f'/delete/{snippet_id}', follow_redirects=False)
+    response = client.post(f'/delete/{snippet_id}', data=ensure_csrf(client), follow_redirects=False)
     assert response.status_code == 302
     assert '/archived' in response.headers.get('Location', '')
 
@@ -394,8 +396,8 @@ def test_delete_archived_snippet_redirects_to_archived(client, db):
 
 def test_create_multipart_snippet(client, db):
     """Test creating a multi-part snippet with shared-variable parts."""
-    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
-    response = client.post('/new', data={
+    login(client)
+    response = client.post('/new', data=ensure_csrf(client, {
         'title': 'Site Edge Stack',
         'parsing_mode': 'weblint',
         'notes': 'Shared IPs across devices',
@@ -406,7 +408,7 @@ def test_create_multipart_snippet(client, db):
             'vlan ip [[Input=LAN_IP|10.0.0.1]]',
         ],
         'part_type': ['plain', 'plain', 'plain'],
-    }, follow_redirects=True)
+    }), follow_redirects=True)
 
     assert response.status_code == 200
     assert b'Site Edge Stack' in response.data
@@ -429,14 +431,14 @@ def test_create_multipart_snippet(client, db):
     assert snippet.archived is False
 def test_create_single_part_clears_parts_column(client, db):
     """Single-part create should leave parts null (legacy mode)."""
-    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
-    client.post('/new', data={
+    login(client)
+    client.post('/new', data=ensure_csrf(client, {
         'title': 'Single Part',
         'parsing_mode': 'weblint',
         'part_name': ['Only'],
         'part_content': ['Hello [[Input=Name|World]]'],
         'part_type': ['markdown'],
-    }, follow_redirects=True)
+    }), follow_redirects=True)
 
     snippet = Snippet.query.filter_by(title='Single Part').first()
     assert snippet is not None
@@ -448,7 +450,7 @@ def test_create_single_part_clears_parts_column(client, db):
 
 def test_edit_multipart_snippet(client, db):
     """Test editing into and within multi-part snippets."""
-    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+    login(client)
 
     snippet = Snippet(
         title='Device Pack',
@@ -460,14 +462,14 @@ def test_edit_multipart_snippet(client, db):
     db.session.commit()
     snippet_id = snippet.id
 
-    response = client.post(f'/edit/{snippet_id}', data={
+    response = client.post(f'/edit/{snippet_id}', data=ensure_csrf(client, {
         'title': 'Device Pack Updated',
         'parsing_mode': 'weblint',
         'notes': 'Updated',
         'part_name': ['Firewall', 'Switch'],
         'part_content': ['fw [[Input=IP|10.0.0.1]]', 'sw [[Input=IP|10.0.0.1]]'],
         'part_type': ['plain', 'html'],
-    }, follow_redirects=True)
+    }), follow_redirects=True)
 
     assert response.status_code == 200
     assert b'Device Pack Updated' in response.data
@@ -483,7 +485,7 @@ def test_edit_multipart_snippet(client, db):
 
 def test_view_legacy_single_part_still_works(client, db):
     """Legacy snippets without parts JSON still render one preview."""
-    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+    login(client)
     snippet = Snippet(
         title='Legacy Snippet',
         content='Hi [[Input=Name|Ada]]',
@@ -502,7 +504,7 @@ def test_view_legacy_single_part_still_works(client, db):
 
 def test_multipart_badge_on_index(client, db):
     """Index shows a parts count for multi-part snippets."""
-    client.post('/login', data={'username': 'admin', 'password': 'adminpass'})
+    login(client)
     snippet = Snippet(
         title='Multi Badge',
         content='a',
@@ -535,7 +537,9 @@ def test_desktop_secret_key_persists(tmp_path, monkeypatch):
 
     assert key1
     assert key1 == key2
-    assert (data_dir / 'secret.key').read_text(encoding='utf-8').strip() == key1
+    key_file = data_dir / 'secret.key'
+    assert key_file.read_text(encoding='utf-8').strip() == key1
+    assert (key_file.stat().st_mode & 0o777) == 0o600
 
 
 def test_resolve_secret_key_requires_env_outside_desktop(tmp_path, monkeypatch):
@@ -606,3 +610,173 @@ def test_resolve_window_icon_prefers_platform_asset():
     assert os.path.basename(icon).startswith('weblint.')
     # Source tree should also still ship the web favicon used to generate these.
     assert os.path.isfile(os.path.join(root, 'static', 'favicon.svg'))
+
+
+def test_is_safe_url_rejects_open_redirects():
+    """Relative paths are allowed; protocol-relative and backslash tricks are not."""
+    from app import is_safe_url
+
+    assert is_safe_url('/view/abc')
+    assert is_safe_url('/view/abc?x=1')
+    assert not is_safe_url('//evil.com')
+    assert not is_safe_url('/\\evil.com')
+    assert not is_safe_url('https://evil.com')
+    assert not is_safe_url('\\\\evil.com')
+    assert not is_safe_url(None)
+    assert not is_safe_url('')
+
+
+def test_login_preserves_safe_next(client):
+    """After login, relative next targets are honored."""
+    response = client.post('/login?next=/archived', data=ensure_csrf(client, {
+        'username': 'admin',
+        'password': 'adminpass',
+    }), follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers.get('Location', '').endswith('/archived')
+
+
+def test_login_rejects_unsafe_next(client):
+    """Unsafe next targets fall back to the index."""
+    response = client.post('/login?next=//evil.com', data=ensure_csrf(client, {
+        'username': 'admin',
+        'password': 'adminpass',
+    }), follow_redirects=False)
+    assert response.status_code == 302
+    location = response.headers.get('Location', '')
+    assert 'evil.com' not in location
+    assert location.endswith('/')
+
+
+def test_login_rate_limit_shared_storage(client, app):
+    """Failed logins are persisted and enforce the shared per-IP limit."""
+    from app import (
+        _LOGIN_MAX_FAILURES,
+        _login_is_rate_limited,
+        _login_record_failure,
+        _login_reset_failures,
+        _login_attempts_db_path,
+    )
+
+    addr = '127.0.0.1'  # Flask test client default remote_addr
+    _login_reset_failures(addr)
+    assert not _login_is_rate_limited(addr)
+    assert os.path.isfile(_login_attempts_db_path())
+
+    for _ in range(_LOGIN_MAX_FAILURES):
+        _login_record_failure(addr)
+    assert _login_is_rate_limited(addr)
+
+    # Endpoint should reject further attempts while limited.
+    response = client.post('/login', data=ensure_csrf(client, {
+        'username': 'admin',
+        'password': 'wrong',
+    }))
+    assert response.status_code == 429
+    assert b'Too many failed login attempts' in response.data
+
+    # Successful path is blocked until the window clears / reset.
+    response = client.post('/login', data=ensure_csrf(client, {
+        'username': 'admin',
+        'password': 'adminpass',
+    }))
+    assert response.status_code == 429
+
+    _login_reset_failures(addr)
+    response = client.post('/login', data=ensure_csrf(client, {
+        'username': 'admin',
+        'password': 'adminpass',
+    }), follow_redirects=False)
+    assert response.status_code == 302
+    assert not _login_is_rate_limited(addr)
+
+
+def test_auth_redirect_uses_relative_next(client):
+    """require_login should pass a relative next path, not an absolute URL."""
+    response = client.get('/archived', follow_redirects=False)
+    assert response.status_code == 302
+    location = response.headers.get('Location', '')
+    assert '/login' in location
+    assert 'next=' in location
+    # Relative path only (no scheme://host)
+    assert 'http://' not in location
+    assert 'https://' not in location
+
+
+def test_state_changing_get_routes_rejected(client, db):
+    """Archive/delete/logout must not mutate state via GET."""
+    login(client)
+    snippet = Snippet(title='Protected', content='x', type='plain', parsing_mode='weblint')
+    db.session.add(snippet)
+    db.session.commit()
+    snippet_id = snippet.id
+
+    assert client.get(f'/delete/{snippet_id}').status_code == 405
+    assert client.get(f'/archive/{snippet_id}').status_code == 405
+    assert client.get(f'/unarchive/{snippet_id}').status_code == 405
+    assert client.get('/logout').status_code == 405
+    assert db.session.get(Snippet, snippet_id) is not None
+    assert db.session.get(Snippet, snippet_id).archived is False
+
+
+def test_csrf_required_on_mutating_posts(client, db):
+    """POSTs without a valid CSRF token are rejected."""
+    login(client)
+    snippet = Snippet(title='CSRF Guard', content='x', type='plain', parsing_mode='weblint')
+    db.session.add(snippet)
+    db.session.commit()
+
+    assert client.post(f'/delete/{snippet.id}', data={}).status_code == 400
+    assert client.post(f'/archive/{snippet.id}', data={'csrf_token': 'bogus'}).status_code == 400
+    assert db.session.get(Snippet, snippet.id) is not None
+
+
+def test_security_headers_present(client):
+    """Basic hardening headers are set on responses."""
+    response = client.get('/login')
+    assert response.headers.get('X-Content-Type-Options') == 'nosniff'
+    assert response.headers.get('X-Frame-Options') == 'SAMEORIGIN'
+    assert response.headers.get('Referrer-Policy') == 'strict-origin-when-cross-origin'
+
+
+def test_search_includes_notes_and_parts(client, db):
+    """Search matches notes and non-first part content."""
+    login(client)
+    db.session.add(Snippet(
+        title='Hidden Title',
+        content='first part only',
+        type='plain',
+        parsing_mode='weblint',
+        notes='unique-note-token-xyz',
+        parts=json.dumps([
+            {'name': 'A', 'content': 'first part only', 'type': 'plain'},
+            {'name': 'B', 'content': 'unique-part-token-xyz', 'type': 'plain'},
+        ]),
+    ))
+    db.session.commit()
+
+    response = client.get('/?q=unique-note-token-xyz')
+    assert b'Hidden Title' in response.data
+
+    response = client.get('/?q=unique-part-token-xyz')
+    assert b'Hidden Title' in response.data
+
+
+def test_create_requires_title(client, db):
+    """Empty title is rejected without creating a snippet."""
+    login(client)
+    response = client.post('/new', data=ensure_csrf(client, {
+        'title': '   ',
+        'content': 'has content',
+        'type': 'plain',
+        'parsing_mode': 'weblint',
+    }))
+    assert response.status_code == 400
+    assert Snippet.query.filter_by(content='has content').first() is None
+
+
+def test_tests_use_isolated_temp_db(app):
+    """Regression: the test suite must not bind to ./data/snippets.db."""
+    uri = app.config['SQLALCHEMY_DATABASE_URI']
+    assert 'weblint-test.db' in uri
+    assert '/data/snippets.db' not in uri

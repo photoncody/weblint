@@ -61,11 +61,22 @@ if [[ "$LOCATION" != *"/login"* ]]; then
 fi
 echo "Pass"
 
+# Helper: extract CSRF token from an HTML page into CSRF_TOKEN
+extract_csrf() {
+    local html="$1"
+    CSRF_TOKEN=$(printf '%s' "$html" | sed -n 's/.*name="csrf_token" value="\([^"]*\)".*/\1/p' | head -n 1)
+    if [ -z "$CSRF_TOKEN" ]; then
+        echo "Failed: Could not extract csrf_token from page"
+        exit 1
+    fi
+}
+
 # Test 2: Login and store session cookies
 echo "Test 2: Login and store session cookies..."
-# Perform login
+LOGIN_HTML=$(curl -s -c "$COOKIE_JAR" -b "$COOKIE_JAR" "$BASE_URL/login")
+extract_csrf "$LOGIN_HTML"
 STATUS=$(curl -s -o /dev/null -w "%{http_code}" -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
-    -d "username=admin" -d "password=adminpass" \
+    -d "username=admin" -d "password=adminpass" -d "csrf_token=$CSRF_TOKEN" \
     "$BASE_URL/login")
 if [ "$STATUS" != "302" ]; then
     echo "Failed: Expected 302 redirect after login, got $STATUS"
@@ -89,12 +100,15 @@ echo "Pass"
 
 # Test 4: Create a snippet
 echo "Test 4: Create a snippet..."
-STATUS=$(curl -s -o /dev/null -w "%{http_code}" -b "$COOKIE_JAR" \
+NEW_HTML=$(curl -s -b "$COOKIE_JAR" -c "$COOKIE_JAR" "$BASE_URL/new")
+extract_csrf "$NEW_HTML"
+STATUS=$(curl -s -o /dev/null -w "%{http_code}" -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
     -d "title=Docker Test Snippet" \
     -d "content=This is a test from docker script" \
     -d "type=plain" \
     -d "parsing_mode=weblint" \
     -d "notes=Test notes" \
+    -d "csrf_token=$CSRF_TOKEN" \
     "$BASE_URL/new")
 
 if [ "$STATUS" != "302" ]; then
@@ -134,7 +148,11 @@ echo "Pass"
 
 # Test 6: Delete the snippet
 echo "Test 6: Delete the snippet..."
-STATUS=$(curl -s -o /dev/null -w "%{http_code}" -b "$COOKIE_JAR" "$BASE_URL/delete/$SNIPPET_ID")
+VIEW_HTML=$(curl -s -b "$COOKIE_JAR" -c "$COOKIE_JAR" "$BASE_URL/view/$SNIPPET_ID")
+extract_csrf "$VIEW_HTML"
+STATUS=$(curl -s -o /dev/null -w "%{http_code}" -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+    -d "csrf_token=$CSRF_TOKEN" \
+    -X POST "$BASE_URL/delete/$SNIPPET_ID")
 if [ "$STATUS" != "302" ]; then
     echo "Failed: Expected 302 after deleting snippet, got $STATUS"
     exit 1
