@@ -37,9 +37,13 @@ def app():
     os.close(fd)
     uri = f'sqlite:///{db_path}'
 
+    login_fd, login_db_path = tempfile.mkstemp(suffix='.login-attempts-test.db')
+    os.close(login_fd)
+
     flask_app.config.update({
         'TESTING': True,
         'SQLALCHEMY_DATABASE_URI': uri,
+        'LOGIN_ATTEMPTS_DB': login_db_path,
     })
 
     with flask_app.app_context():
@@ -56,10 +60,12 @@ def app():
                 eng.dispose()
             engines.clear()
 
-    try:
-        os.unlink(db_path)
-    except OSError:
-        pass
+    for path in (db_path, login_db_path):
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+    flask_app.config.pop('LOGIN_ATTEMPTS_DB', None)
 
 
 @pytest.fixture

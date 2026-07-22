@@ -1,4 +1,5 @@
 import json
+import os
 import pytest
 from app import Snippet, get_snippet_parts
 from conftest import ensure_csrf, login
@@ -645,6 +646,49 @@ def test_login_rejects_unsafe_next(client):
     location = response.headers.get('Location', '')
     assert 'evil.com' not in location
     assert location.endswith('/')
+
+
+def test_login_rate_limit_shared_storage(client, app):
+    """Failed logins are persisted and enforce the shared per-IP limit."""
+    from app import (
+        _LOGIN_MAX_FAILURES,
+        _login_is_rate_limited,
+        _login_record_failure,
+        _login_reset_failures,
+        _login_attempts_db_path,
+    )
+
+    addr = '127.0.0.1'  # Flask test client default remote_addr
+    _login_reset_failures(addr)
+    assert not _login_is_rate_limited(addr)
+    assert os.path.isfile(_login_attempts_db_path())
+
+    for _ in range(_LOGIN_MAX_FAILURES):
+        _login_record_failure(addr)
+    assert _login_is_rate_limited(addr)
+
+    # Endpoint should reject further attempts while limited.
+    response = client.post('/login', data=ensure_csrf(client, {
+        'username': 'admin',
+        'password': 'wrong',
+    }))
+    assert response.status_code == 429
+    assert b'Too many failed login attempts' in response.data
+
+    # Successful path is blocked until the window clears / reset.
+    response = client.post('/login', data=ensure_csrf(client, {
+        'username': 'admin',
+        'password': 'adminpass',
+    }))
+    assert response.status_code == 429
+
+    _login_reset_failures(addr)
+    response = client.post('/login', data=ensure_csrf(client, {
+        'username': 'admin',
+        'password': 'adminpass',
+    }), follow_redirects=False)
+    assert response.status_code == 302
+    assert not _login_is_rate_limited(addr)
 
 
 def test_auth_redirect_uses_relative_next(client):

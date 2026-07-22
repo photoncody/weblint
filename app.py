@@ -172,25 +172,94 @@ def _secure_str_eq(a, b):
     except Exception:
         return False
 
-# Simple in-memory login rate limiting (per remote address)
-_login_attempts = {}
+# Shared login rate limiting (SQLite-backed so Gunicorn workers share state)
 _LOGIN_MAX_FAILURES = 10
 _LOGIN_WINDOW_SECONDS = 300
 
+def _login_attempts_db_path():
+    # Allow tests (and rare ops overrides) to point at an isolated file.
+    override = app.config.get('LOGIN_ATTEMPTS_DB')
+    if override:
+        return override
+    return os.path.join(base_dir, 'login_attempts.db')
+
+def _login_db_connect():
+    """Open the shared login-attempt DB with a busy timeout for multi-worker use."""
+    import sqlite3
+    path = _login_attempts_db_path()
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    conn = sqlite3.connect(path, timeout=30)
+    conn.execute(
+        'CREATE TABLE IF NOT EXISTS login_failure ('
+        'addr TEXT NOT NULL,'
+        'failed_at REAL NOT NULL'
+        ')'
+    )
+    conn.execute(
+        'CREATE INDEX IF NOT EXISTS idx_login_failure_addr_time '
+        'ON login_failure(addr, failed_at)'
+    )
+    return conn
+
+def _login_prune_old(conn, now=None):
+    now = time.time() if now is None else now
+    conn.execute(
+        'DELETE FROM login_failure WHERE failed_at < ?',
+        (now - _LOGIN_WINDOW_SECONDS,),
+    )
+
 def _login_is_rate_limited(addr):
+    if not addr:
+        return False
     now = time.time()
-    failures = [t for t in _login_attempts.get(addr, []) if now - t < _LOGIN_WINDOW_SECONDS]
-    _login_attempts[addr] = failures
-    return len(failures) >= _LOGIN_MAX_FAILURES
+    try:
+        conn = _login_db_connect()
+        try:
+            _login_prune_old(conn, now)
+            row = conn.execute(
+                'SELECT COUNT(*) FROM login_failure WHERE addr = ? AND failed_at >= ?',
+                (addr, now - _LOGIN_WINDOW_SECONDS),
+            ).fetchone()
+            conn.commit()
+            return int(row[0]) >= _LOGIN_MAX_FAILURES
+        finally:
+            conn.close()
+    except Exception:
+        # Fail open on storage errors so a DB glitch cannot lock everyone out.
+        return False
 
 def _login_record_failure(addr):
+    if not addr:
+        return
     now = time.time()
-    failures = [t for t in _login_attempts.get(addr, []) if now - t < _LOGIN_WINDOW_SECONDS]
-    failures.append(now)
-    _login_attempts[addr] = failures
+    try:
+        conn = _login_db_connect()
+        try:
+            _login_prune_old(conn, now)
+            conn.execute(
+                'INSERT INTO login_failure (addr, failed_at) VALUES (?, ?)',
+                (addr, now),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
 
 def _login_reset_failures(addr):
-    _login_attempts.pop(addr, None)
+    if not addr:
+        return
+    try:
+        conn = _login_db_connect()
+        try:
+            conn.execute('DELETE FROM login_failure WHERE addr = ?', (addr,))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
 
 @app.context_processor
 def inject_auth_status():
