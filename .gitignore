@@ -1,17 +1,37 @@
-# Data directories
+# Data directories (SQLite DB, desktop secret.key, local uploads)
 data/
 
 # Python compiled files
 __pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.tox/
 
 # Virtual environments
 venv/
 .venv/
 env/
 
-# Environment variables
+# Environment variables / local secrets
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa
+id_rsa.pub
+.aws/
+credentials
+secrets/
+.secrets/
+
+# Local databases outside data/
+*.db
+*.sqlite
+*.sqlite3
 
 # MacOS
 .DS_Store
@@ -19,6 +39,9 @@ env/
 # IDEs
 .idea/
 .vscode/
+
+# Node (if tooling is added later)
+node_modules/
 
 # Testing and Logs
 .coverage
@@ -30,4 +53,3 @@ htmlcov/
 build/
 dist/
 *.manifest
-*.pyo

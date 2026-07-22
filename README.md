@@ -203,3 +203,7 @@ When running the desktop binary, data (including an auto-generated `secret.key`)
 ## JSON Migration
 
 On startup, if the database is empty, Weblint will check for a `/data/snippets.json` file. If found, it will automatically import snippets from this file into the database. This is useful for initial data seeding or migration.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).

@@ -9,17 +9,36 @@ data/
 # Ignore compiled python files
 __pycache__/
 *.pyc
+*.pyo
+*.egg-info/
 
-# Ignore environment files
+# Ignore environment files / local secrets
 .env
+.env.*
+*.pem
+*.key
+id_rsa
+id_rsa.pub
+.aws/
+credentials
+secrets/
+.secrets/
 .venv/
 venv/
 env/
+
+# Local databases outside data/
+*.db
+*.sqlite
+*.sqlite3
 
 # Ignore IDE files
 .idea/
 .vscode/
 .DS_Store
+
+# Node
+node_modules/
 
 # Testing and Logs
 .coverage
