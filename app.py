@@ -155,7 +155,13 @@ def generate_csrf_token():
 def validate_csrf_token():
     token = request.form.get('csrf_token', '')
     expected = session.get('_csrf_token', '')
-    if not expected or not token or not hmac.compare_digest(str(token), str(expected)):
+    if not expected or not token:
+        abort(400)
+    try:
+        valid = hmac.compare_digest(str(token), str(expected))
+    except (TypeError, ValueError):
+        valid = False
+    if not valid:
         abort(400)
 
 def _secure_str_eq(a, b):
@@ -321,17 +327,26 @@ with app.app_context():
         except Exception as e:
             print(f"Error migrating JSON data: {e}")
 
+def _escape_like(term):
+    """Escape LIKE wildcards so user search terms are matched literally."""
+    return (
+        term.replace('\\', '\\\\')
+            .replace('%', '\\%')
+            .replace('_', '\\_')
+    )
+
 @app.route('/')
 def index():
     query = request.args.get('q', '').lower()
     
     if query:
+        pattern = f'%{_escape_like(query)}%'
         snippets = Snippet.query.filter(
             Snippet.archived == False,
-            (Snippet.title.ilike(f'%{query}%')) |
-            (Snippet.content.ilike(f'%{query}%')) |
-            (Snippet.notes.ilike(f'%{query}%')) |
-            (Snippet.parts.ilike(f'%{query}%'))
+            (Snippet.title.ilike(pattern, escape='\\')) |
+            (Snippet.content.ilike(pattern, escape='\\')) |
+            (Snippet.notes.ilike(pattern, escape='\\')) |
+            (Snippet.parts.ilike(pattern, escape='\\'))
         ).order_by(Snippet.title).all()
     else:
         snippets = Snippet.query.filter_by(archived=False).order_by(Snippet.title).all()

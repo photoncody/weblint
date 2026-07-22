@@ -25,11 +25,9 @@ separate backing services). Standard setup/run commands live in `README.md` and
 ### Testing
 - Unit tests: `PYTHONPATH=. python3 -m pytest tests/`. `tests/conftest.py` sets `SECRET_KEY`
   and auth env vars, so no env setup is needed to run them.
-- Gotcha: the tests' attempt to switch to in-memory SQLite does not take effect (Flask-SQLAlchemy
-  3.x binds the engine from config at `init_app` time), so the suite actually runs against the
-  real `data/snippets.db` and its teardown `drop_all()` DROPS its tables. If you run the tests
-  while a local dev server is up, the running app will start returning HTTP 500
-  (`no such table: snippet`) until it is restarted (restart re-runs `db.create_all()`).
+- Tests rebind SQLAlchemy to an isolated temp-file DB (`tests/conftest.py`) so they do not touch
+  `data/snippets.db`. If you change DB fixture setup, verify teardown cannot `drop_all()` on the
+  real file DB.
 - `tests/test_docker.sh` is a Docker-based end-to-end test and requires Docker (not installed
   by default in this environment).
 

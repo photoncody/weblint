@@ -609,3 +609,130 @@ def test_resolve_window_icon_prefers_platform_asset():
     assert os.path.basename(icon).startswith('weblint.')
     # Source tree should also still ship the web favicon used to generate these.
     assert os.path.isfile(os.path.join(root, 'static', 'favicon.svg'))
+
+
+def test_is_safe_url_rejects_open_redirects():
+    """Relative paths are allowed; protocol-relative and backslash tricks are not."""
+    from app import is_safe_url
+
+    assert is_safe_url('/view/abc')
+    assert is_safe_url('/view/abc?x=1')
+    assert not is_safe_url('//evil.com')
+    assert not is_safe_url('/\\evil.com')
+    assert not is_safe_url('https://evil.com')
+    assert not is_safe_url('\\\\evil.com')
+    assert not is_safe_url(None)
+    assert not is_safe_url('')
+
+
+def test_login_preserves_safe_next(client):
+    """After login, relative next targets are honored."""
+    response = client.post('/login?next=/archived', data=ensure_csrf(client, {
+        'username': 'admin',
+        'password': 'adminpass',
+    }), follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers.get('Location', '').endswith('/archived')
+
+
+def test_login_rejects_unsafe_next(client):
+    """Unsafe next targets fall back to the index."""
+    response = client.post('/login?next=//evil.com', data=ensure_csrf(client, {
+        'username': 'admin',
+        'password': 'adminpass',
+    }), follow_redirects=False)
+    assert response.status_code == 302
+    location = response.headers.get('Location', '')
+    assert 'evil.com' not in location
+    assert location.endswith('/')
+
+
+def test_auth_redirect_uses_relative_next(client):
+    """require_login should pass a relative next path, not an absolute URL."""
+    response = client.get('/archived', follow_redirects=False)
+    assert response.status_code == 302
+    location = response.headers.get('Location', '')
+    assert '/login' in location
+    assert 'next=' in location
+    # Relative path only (no scheme://host)
+    assert 'http://' not in location
+    assert 'https://' not in location
+
+
+def test_state_changing_get_routes_rejected(client, db):
+    """Archive/delete/logout must not mutate state via GET."""
+    login(client)
+    snippet = Snippet(title='Protected', content='x', type='plain', parsing_mode='weblint')
+    db.session.add(snippet)
+    db.session.commit()
+    snippet_id = snippet.id
+
+    assert client.get(f'/delete/{snippet_id}').status_code == 405
+    assert client.get(f'/archive/{snippet_id}').status_code == 405
+    assert client.get(f'/unarchive/{snippet_id}').status_code == 405
+    assert client.get('/logout').status_code == 405
+    assert db.session.get(Snippet, snippet_id) is not None
+    assert db.session.get(Snippet, snippet_id).archived is False
+
+
+def test_csrf_required_on_mutating_posts(client, db):
+    """POSTs without a valid CSRF token are rejected."""
+    login(client)
+    snippet = Snippet(title='CSRF Guard', content='x', type='plain', parsing_mode='weblint')
+    db.session.add(snippet)
+    db.session.commit()
+
+    assert client.post(f'/delete/{snippet.id}', data={}).status_code == 400
+    assert client.post(f'/archive/{snippet.id}', data={'csrf_token': 'bogus'}).status_code == 400
+    assert db.session.get(Snippet, snippet.id) is not None
+
+
+def test_security_headers_present(client):
+    """Basic hardening headers are set on responses."""
+    response = client.get('/login')
+    assert response.headers.get('X-Content-Type-Options') == 'nosniff'
+    assert response.headers.get('X-Frame-Options') == 'SAMEORIGIN'
+    assert response.headers.get('Referrer-Policy') == 'strict-origin-when-cross-origin'
+
+
+def test_search_includes_notes_and_parts(client, db):
+    """Search matches notes and non-first part content."""
+    login(client)
+    db.session.add(Snippet(
+        title='Hidden Title',
+        content='first part only',
+        type='plain',
+        parsing_mode='weblint',
+        notes='unique-note-token-xyz',
+        parts=json.dumps([
+            {'name': 'A', 'content': 'first part only', 'type': 'plain'},
+            {'name': 'B', 'content': 'unique-part-token-xyz', 'type': 'plain'},
+        ]),
+    ))
+    db.session.commit()
+
+    response = client.get('/?q=unique-note-token-xyz')
+    assert b'Hidden Title' in response.data
+
+    response = client.get('/?q=unique-part-token-xyz')
+    assert b'Hidden Title' in response.data
+
+
+def test_create_requires_title(client, db):
+    """Empty title is rejected without creating a snippet."""
+    login(client)
+    response = client.post('/new', data=ensure_csrf(client, {
+        'title': '   ',
+        'content': 'has content',
+        'type': 'plain',
+        'parsing_mode': 'weblint',
+    }))
+    assert response.status_code == 400
+    assert Snippet.query.filter_by(content='has content').first() is None
+
+
+def test_tests_use_isolated_temp_db(app):
+    """Regression: the test suite must not bind to ./data/snippets.db."""
+    uri = app.config['SQLALCHEMY_DATABASE_URI']
+    assert 'weblint-test.db' in uri
+    assert '/data/snippets.db' not in uri
