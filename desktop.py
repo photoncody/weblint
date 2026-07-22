@@ -165,12 +165,15 @@ def main():
         print(f'Window icon: {icon_path}', flush=True)
     _prepare_native_identity(icon_path)
 
+    # text_select=True is required: pywebview defaults to False and blocks selecting
+    # (and thus copying) preview/output text in the native window.
     webview.create_window(
         title='Weblint',
         url=url,
         width=1280,
         height=860,
         min_size=(900, 640),
+        text_select=True,
     )
     # Blocks until the user closes the window; daemon Flask thread exits with the process.
     # icon= sets the native title-bar / dock icon (GTK/Qt; also used by WinForms when present).
@@ -196,7 +199,13 @@ if __name__ == '__main__':
             import webview
             from app import resource_root
             icon_path = _resolve_window_icon(resource_root())
-            webview.create_window('Weblint', html=f'<h3>Weblint error</h3><pre>{message}</pre>', width=640, height=360)
+            webview.create_window(
+                'Weblint',
+                html=f'<h3>Weblint error</h3><pre>{message}</pre>',
+                width=640,
+                height=360,
+                text_select=True,
+            )
             webview.start(icon=icon_path)
         except Exception:  # noqa: BLE001
             print(message, file=sys.stderr)
